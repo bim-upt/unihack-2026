@@ -68,6 +68,15 @@ def add_stops(fg, feed: Feed, route: Route, radius: int) -> None:
         ).add_to(fg)
 
 
+def add_next_stop(fg, path: list[list[float]], stop_name: str, stop_latlon: tuple[float, float], color: str,
+                  fill: str) -> None:
+    """Solid line along the route from the selected bus to its next stop, and that stop marked."""
+    if len(path) >= 2:
+        folium.PolyLine(path, color=color, weight=5, opacity=0.95, tooltip=f"To the next stop: {stop_name}").add_to(fg)
+    folium.CircleMarker(stop_latlon, radius=9, color=color, weight=3, fill=True, fill_color=fill, fill_opacity=1,
+                        tooltip=f"Next stop: {stop_name}").add_to(fg)
+
+
 def add_trail(fg, coords: list[list[float]], color: str) -> None:
     """Recent track of the selected bus, oldest to newest."""
     if len(coords) >= 2:
@@ -117,7 +126,9 @@ def _tile_options(settings: Settings, box: list) -> dict:
     return opts
 
 
-def build_base_map(settings: Settings, area: Bounds, stops_payload: dict) -> folium.Map:
+def build_base_map(settings: Settings, area: Bounds, stops_payload: dict, *, highlight_px: int = 3) -> folium.Map:
+    """`stops_payload`: the stops hover shows for a line ({} = none); `highlight_px`: how much a hovered line
+    thickens (0 = it doesn't). The "Lines here" box is shown either way."""
     (s, w), (n, e) = area
     box = [[s, w], [n, e]]
     m = folium.Map(
@@ -137,5 +148,5 @@ def build_base_map(settings: Settings, area: Bounds, stops_payload: dict) -> fol
     ).add_to(m)
     m.fit_bounds(box)
     LockToArea(area).add_to(m)
-    HoverInfo(stops_payload, settings.tile_filter).add_to(m)
+    HoverInfo(stops_payload, settings.tile_filter, highlight_px=highlight_px).add_to(m)
     return m

@@ -162,7 +162,8 @@ def _hot_spots(settings: Settings, area: Bounds, df: pd.DataFrame, route_of: dic
 
     # the network, pale, under the heat map; hovering a line shows its name and stops (same as the Map page)
     # with one line picked: only that line, drawn clearly, and the map zooms to it (easier to read)
-    base = build_base_map(settings, area, hover_payload)
+    # hover names the lines in the corner box, but doesn't thicken them or pop up their stops here
+    base = build_base_map(settings, area, {}, highlight_px=0)
     lines = folium.FeatureGroup(name="lines")
     ids_drawn = [one_line] if one_line else feed.drawable_route_ids()
     add_route_lines(lines, feed, ids_drawn, settings.line_weight_selected if one_line else settings.line_weight,

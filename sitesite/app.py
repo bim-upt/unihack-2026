@@ -14,8 +14,9 @@ from transit.config import Settings
 from transit.domain import Vehicle
 from transit.geometry import pad_bounds, view_for
 from transit.gtfs import Feed, load_feed
+from transit.nextstop import next_stop
 from transit.mapview.layers import (
-    add_hit_lines, add_route_lines, add_stops, add_trail, add_vehicles, build_base_map, hover_stops,
+    add_hit_lines, add_next_stop, add_route_lines, add_stops, add_trail, add_vehicles, build_base_map, hover_stops,
 )
 from transit.providers import ScheduleProvider, live_vehicles, trail_coords
 from transit.ui import data, state
@@ -123,8 +124,8 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
     """Map and side panel. With live updates on, this part alone re-runs every few seconds: the sidebar and
     the map's base layer stay as they are, only the buses, the trail and the panel are redrawn."""
     data.require_server()
-    if not controls.simulated:
-        controls = replace(controls, now=datetime.now(SETTINGS.tz))
+    # every update: the real time, or the simulated clock (set in the sidebar, running on from there)
+    controls = replace(controls, now=state.sim_now(SETTINGS.tz) if controls.simulated else datetime.now(SETTINGS.tz))
     sel_id = state.selected_route_id()
     route = feed.routes.get(sel_id) if sel_id else None
     selected = state.selected_vehicle_id()
@@ -140,6 +141,7 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
     notice = None
     history_fetched = (None, None)
     snapshot = (None, None)
+    upcoming = None   # the selected live bus's next stop
 
     if route:
         add_route_lines(static, feed, [route.route_id], SETTINGS.line_weight_selected)
@@ -165,7 +167,12 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                 snap, snap_err = snapshot
                 history_fetched = (snap.history, snap.errors.get("history")) if snap else (None, snap_err)
                 if history_fetched[0]:
-                    add_trail(fg, trail_coords(history_fetched[0]), contrast_path_colors(route.color)[0])
+                    path_color = contrast_path_colors(route.color)[0]
+                    add_trail(fg, trail_coords(history_fetched[0]), path_color)
+                    upcoming = next_stop(feed, route.route_id, history_fetched[0])
+                    if upcoming:
+                        add_next_stop(fg, upcoming.path, upcoming.stop.name, (upcoming.stop.lat, upcoming.stop.lon),
+                                      path_color, route.color)
         else:
             vehicles = scheduled
         add_vehicles(fg, route, vehicles, selected)
@@ -234,7 +241,7 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                     devices_fetched = ((snap.devices, snap.errors), None) if snap else (None, snap_err)
                     t_overview, t_devices, t_history = st.tabs(["Overview", "Devices", "History"])
                     with t_overview:
-                        render_live_bus(feed, route, bid, info_fetched, frame_fetched, SETTINGS.tz,
+                        render_live_bus(feed, route, bid, info_fetched, frame_fetched, SETTINGS.tz, upcoming=upcoming,
                                         photo_meta=snap.photo_meta if snap else None,
                                         history=snap.history if snap else None)
                     with t_devices:

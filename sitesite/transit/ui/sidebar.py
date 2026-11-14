@@ -65,14 +65,24 @@ def render_sidebar(feed: Feed, settings: Settings) -> Controls:
         now = datetime.now(settings.tz)
         simulated = False
         if source == "schedule":
-            simulated = st.checkbox("Override time (simulate)", value=False)
+            # keyed widgets: an unkeyed time box with "now" as its default was a new widget every second, so
+            # the time typed in was lost on the next update
+            ss = st.session_state
+            simulated = st.checkbox("Override time (simulate)", key=state.K_SIM_ON, on_change=state.start_sim_clock)
             if simulated:
-                tt = st.time_input("Time", value=now.time().replace(microsecond=0))
-                now = now.replace(hour=tt.hour, minute=tt.minute, second=tt.second)
+                # hour and minute typed in (or +/-), not picked from a list of every minute of the day
+                ss.setdefault(state.K_SIM_HOUR, now.hour)
+                ss.setdefault(state.K_SIM_MIN, now.minute)
+                h, m = st.columns(2)
+                h.number_input("Hour", min_value=0, max_value=23, step=1, key=state.K_SIM_HOUR,
+                               on_change=state.start_sim_clock)
+                m.number_input("Minute", min_value=0, max_value=59, step=1, key=state.K_SIM_MIN,
+                               on_change=state.start_sim_clock)
+                now = state.sim_now(settings.tz)
         live_updates = st.toggle(f"Live updates (every {settings.live_refresh_s:g} s)", key=state.K_LIVE_UPDATES)
         if not simulated:
             st.caption("Time: now")
         else:
-            st.caption(f"Reference time: {now:%Y-%m-%d %H:%M:%S}")
+            st.caption(f"Simulated time (runs on from the time set): {now:%H:%M:%S}")
         st.button("Refresh", on_click=data.clear)
     return Controls(now=now, simulated=simulated, source=source, view=view, live_updates=live_updates)

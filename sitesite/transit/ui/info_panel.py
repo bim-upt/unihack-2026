@@ -1,6 +1,8 @@
 """Right-hand column: network summary, line header, selected bus."""
 from __future__ import annotations
 
+import math
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -95,8 +97,42 @@ def render_route_header(route: Route, *, live_count: int | None, scheduled_count
         st.warning(notice)
 
 
+ETA_WINDOW_S = 90      # positions from this long before the latest one count towards the average
+ETA_RADIUS_M = 500     # ... and only if they were this close to where the bus is now
+ETA_MIN_KMH = 2.0      # an average below this means the bus is standing: no estimate
+
+
+def recent_speed_kmh(p, history) -> float | None:
+    """Average reported speed of the bus over its last ETA_WINDOW_S, using only positions within ETA_RADIUS_M
+    of its latest one (so it is the speed on the stretch it is on, stops at lights included). Pure."""
+    if p is None or p.received_at is None or not p.latlon:
+        return None
+    speeds = []
+    for t in history or []:
+        if t.speed_kmh is None or t.received_at is None or not t.latlon:
+            continue
+        age = (p.received_at - t.received_at).total_seconds()
+        if not 0 <= age <= ETA_WINDOW_S:
+            continue
+        dy, dx = (t.lat - p.lat) * 111_320, (t.lon - p.lon) * 111_320 * math.cos(math.radians(p.lat))
+        if math.hypot(dx, dy) <= ETA_RADIUS_M:
+            speeds.append(t.speed_kmh)
+    if not speeds and p.speed_kmh is not None:
+        speeds = [p.speed_kmh]
+    return sum(speeds) / len(speeds) if speeds else None
+
+
+def eta_text(distance_m: float, p, history=None) -> str | None:
+    """'~20 s' / '~3 min' to cover `distance_m` at the bus's recent average speed. None if it stands. Pure."""
+    speed = recent_speed_kmh(p, history)
+    if speed is None or speed < ETA_MIN_KMH:
+        return None
+    seconds = distance_m / (speed / 3.6)
+    return f"~{max(5, round(seconds / 5) * 5):.0f} s" if seconds < 60 else f"~{round(seconds / 60):.0f} min"
+
+
 def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_fetched, tz: ZoneInfo, *,
-                    photo_meta=None, history=None) -> None:
+                    photo_meta=None, history=None, upcoming=None) -> None:
     """Overview tab of the selected bus."""
     info, err = info_fetched
     if err or info is None:
@@ -111,10 +147,14 @@ def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_f
         age = p.age_s()
         facts.append(f"**{p.speed_kmh:.0f} km/h**" if p.speed_kmh is not None else "speed —")
     facts.append(f"**{'—' if info.occupancy is None else info.occupancy}** passengers")
-    if p and p.latlon:
+    if upcoming is not None:   # next stop ahead, distance along the line
+        eta = eta_text(upcoming.distance_m, p, history)
+        facts.append(f"next stop **{upcoming.stop.name}** ({upcoming.distance_m:.0f} m{', ' + eta if eta else ''})")
+    elif p and p.latlon:       # direction unknown: the nearest stop, straight-line distance
         ns = nearest_stop(feed, route.route_id, *p.latlon)
         if ns:
-            facts.append(f"near **{ns[0].name}** ({ns[1]:.0f} m)")
+            eta = eta_text(ns[1], p, history)
+            facts.append(f"near **{ns[0].name}** ({ns[1]:.0f} m{', ' + eta if eta else ''})")
     st.markdown(" · ".join(facts))
     if p:
         st.caption(" · ".join([

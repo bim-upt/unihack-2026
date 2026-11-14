@@ -1,6 +1,9 @@
 """All session-state keys and transitions live here."""
 from __future__ import annotations
 
+import time as _time
+from datetime import datetime, timedelta
+
 import streamlit as st
 
 from ..mapview.layers import parse_vehicle_tooltip
@@ -20,6 +23,7 @@ K_LINE_TABLE = "line_table"
 K_LINE_TABLE_IDS = "line_table_ids"
 K_LIVE_UPDATES = "live_updates"
 K_VIEW = "view"                 # "map" | "fleet" | "devices" | "users"
+K_SIM_ON, K_SIM_HOUR, K_SIM_MIN, K_SIM_SET_AT = "sim_on", "sim_hour", "sim_min", "sim_set_at"   # "what if" time
 K_PENDING_VIEW = "pending_view"          # set by a click elsewhere, applied on the next full run
 K_PENDING_VEHICLE = "pending_vehicle"
 
@@ -131,3 +135,15 @@ def handle_map_result(result: dict | None, selected_route: str | None, vehicle_i
         ss[K_LAST_TIP] = tip
         ss[K_VEHICLE] = vid
         st.rerun()
+
+# ---------------------------------------------------------------- simulated time (timetable mode)
+def start_sim_clock() -> None:
+    """The simulated clock starts at the chosen time now and then runs on like a normal clock."""
+    st.session_state[K_SIM_SET_AT] = _time.time()
+
+
+def sim_now(tz) -> datetime:
+    """The chosen time, plus how long ago it was chosen (so the timetable buses keep moving)."""
+    ss = st.session_state
+    chosen = datetime.now(tz).replace(hour=int(ss[K_SIM_HOUR]), minute=int(ss[K_SIM_MIN]), second=0, microsecond=0)
+    return chosen + timedelta(seconds=_time.time() - ss.get(K_SIM_SET_AT, _time.time()))
