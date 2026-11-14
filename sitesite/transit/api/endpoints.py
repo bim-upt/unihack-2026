@@ -48,7 +48,10 @@ class Endpoints:
     rides: Endpoint | None = Endpoint(
         "GET", "/rides", params=(("user_id", "user_id"), ("bus_id", "bus_id"), ("status", "status"), ("limit", "limit"), ("offset", "offset")))
     ride: Endpoint | None = Endpoint("GET", "/rides/{session_id}")
-    charges: Endpoint | None = Endpoint("GET", "/charges", params=(("user_id", "user_id"), ("status", "status"), ("limit", "limit"), ("offset", "offset")))
+    # from/to (on startedAt) and kind are being added on the server; until then it ignores them (the site filters too)
+    charges: Endpoint | None = Endpoint(
+        "GET", "/charges", params=(("user_id", "user_id"), ("status", "status"), ("start", "from"), ("end", "to"),
+                                   ("kind", "kind"), ("limit", "limit"), ("offset", "offset")))
     trips: Endpoint | None = Endpoint("GET", "/trips", params=(("user_id", "user_id"), ("limit", "limit"), ("offset", "offset")))
     passes: Endpoint | None = Endpoint("GET", "/passes", params=(("user_id", "user_id"), ("limit", "limit"), ("offset", "offset")))
     ticket_verifications: Endpoint | None = Endpoint(

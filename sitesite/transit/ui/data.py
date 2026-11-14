@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from collections import defaultdict
 from typing import Callable, TypeVar
 
@@ -10,8 +11,9 @@ import streamlit as st
 from ..api import (
     ApiClient, assemble_bus_snapshot, build_client, fetch_many, get_bus_live, get_bus_photo, get_bus_setup,
     get_capture_interval, get_route_positions, get_telemetry_history, list_bus_devices, list_buses, list_frames,
-    list_latest_telemetry, list_records, list_reports, get_record,
+    list_all_records, list_latest_telemetry, list_records, list_reports, get_record, server_up,
 )
+from ..api.errors import CONNECTION_LOST, user_message
 from ..gtfs import Feed
 from ..linking import RouteLink, match_routes
 
@@ -30,8 +32,38 @@ def api_client() -> ApiClient:
 def _safe(fn: Callable[[], T]) -> tuple[T | None, str | None]:
     try:
         return fn(), None
-    except Exception as exc:  # UI boundary: show the error instead of breaking the page
-        return None, f"{type(exc).__name__}: {exc}"
+    except Exception as exc:  # UI boundary: a plain message instead of breaking the page (detail in the log)
+        return None, user_message(exc)
+
+
+# ---------------------------------------------------------------- connection
+@st.cache_resource(ttl=1, show_spinner=False)
+def _server_up() -> bool:
+    return server_up(api_client())   # at most one /health a second, shared by every page and viewer
+
+
+def server_up_now() -> bool:
+    return _server_up()
+
+
+def require_server() -> None:
+    """At the top of every self-updating part: if the server stopped answering, rerun the whole app, which
+    then shows the 'connection lost' banner instead of making calls that would all fail."""
+    if not _server_up():
+        st.rerun(scope="app")
+
+
+def render_connection_lost() -> None:
+    """The page while the server is down: one banner, /health checked every second. When it answers, the
+    cached failures are dropped and the whole app reruns with its normal calls."""
+    @st.fragment(run_every=1)
+    def wait() -> None:
+        if _server_up():
+            clear()
+            st.rerun(scope="app")
+        st.warning(f"{CONNECTION_LOST} Checking every second (last check "
+                   f"{datetime.now().strftime('%H:%M:%S')}). The page comes back by itself.")
+    wait()
 
 
 # ---------------------------------------------------------------- GTFS line <-> API route
@@ -59,7 +91,7 @@ def route_link(gtfs_key: str, feed: Feed) -> tuple[RouteLink, str | None]:
     try:
         return _route_link(gtfs_key, feed), None
     except Exception as exc:
-        return RouteLink(), f"{type(exc).__name__}: {exc}"
+        return RouteLink(), user_message(exc)
 
 
 # ---------------------------------------------------------------- map and bus panel
@@ -159,8 +191,35 @@ def ride(session_id: str):
     return _safe(lambda: get_record(api_client(), "ride", session_id=session_id))
 
 
+# ---------------------------------------------------------------- money page
+@st.cache_resource(ttl=5, max_entries=20, show_spinner=False)   # under the 10 s update; no spinner flashing
+def charges(start_iso: str | None, end_iso: str | None):
+    """Every charge started in [start, end). from/to go to the server (it filters once that is built); the
+    money page filters the dates again, so the numbers are right either way."""
+    return _safe(lambda: list_all_records(api_client(), "charges", start=start_iso, end=end_iso))
+
+
+@st.cache_resource(ttl=300, show_spinner=False)
+def pass_catalog():
+    return _safe(lambda: list_records(api_client(), "pass_catalog"))
+
+
+# ---------------------------------------------------------------- line health page
+@st.cache_resource(ttl=20, max_entries=10, show_spinner=False)
+def recent_history(bus_ids: tuple[int, ...], start_iso: str):
+    """bus id -> (positions received since `start_iso`, error); one call per bus, in parallel."""
+    start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))   # text as the cache key, datetime for the call
+    return fetch_many(lambda bid: get_telemetry_history(api_client(), bid, start=start, limit=1000), bus_ids)
+
+
+@st.cache_resource(ttl=20, show_spinner=False)
+def all_reports():
+    return _safe(lambda: list_reports(api_client()))
+
+
 def clear() -> None:
     for fn in (route_positions, reports, buses, _bus_live, _bus_setup, _bus_photo,
-               fleet_devices, latest_telemetry, latest_frames, capture_interval, users, user, user_activity, ride):
+               fleet_devices, latest_telemetry, latest_frames, capture_interval, users, user, user_activity, ride,
+               charges, pass_catalog, recent_history, all_reports):
         fn.clear()
     # the route link is left alone: it is rebuilt every 10 minutes on its own

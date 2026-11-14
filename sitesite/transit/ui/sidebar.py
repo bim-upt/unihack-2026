@@ -10,7 +10,8 @@ from ..gtfs import Feed
 from . import data, state
 
 SOURCE_LABELS = {"live": "Live (API)", "schedule": "Schedule (GTFS)"}
-VIEW_LABELS = {"map": "🗺️ Map", "fleet": "🚍 Fleet", "devices": "📡 Devices", "users": "👤 Users"}
+VIEW_LABELS = {"map": "🗺️ Map", "fleet": "🚍 Fleet", "health": "🚦 Line health", "devices": "📡 Devices",
+               "users": "👤 Users", "money": "💰 Money"}
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ def render_sidebar(feed: Feed, settings: Settings) -> Controls:
         if view != "map":
             label = {
                 "fleet": f"every {settings.fleet_refresh_s:g} s",
+                "money": f"every {settings.money_refresh_s:g} s",
+                "health": f"every {settings.health_refresh_s:g} s",
                 "devices": f"list every {settings.devices_list_refresh_s:g} s, "
                            f"selected device every {settings.live_refresh_s:g} s",
                 "users": f"list every {settings.devices_list_refresh_s:g} s, "

@@ -8,7 +8,7 @@ from typing import Callable, Iterable, TypeVar
 import requests
 
 from .client import ApiClient
-from .errors import ApiError, AuthNotConfigured, TransportError
+from .errors import ApiError, AuthNotConfigured, TransportError, user_message
 from .models import (
     Bus, BusInfo, CaptureInterval, Device, DeviceStatus, Frame, FrameImage, Occupancy, PassProduct, Position, Report, Telemetry,
 )
@@ -107,11 +107,34 @@ def list_pass_products(api: ApiClient) -> list[PassProduct] | None:
     return _list(api, "pass_catalog", PassProduct)
 
 
+# ---------------------------------------------------------------- server reachable?
+def server_up(api: ApiClient, timeout_s: float = 1.5) -> bool:
+    """GET /health once, quickly, without the automatic retries of the normal calls (needs no token)."""
+    try:
+        r = requests.get(api.transport.base_url + "/health", timeout=timeout_s, verify=api.transport.verify_tls)
+        return r.status_code == 200
+    except requests.RequestException:
+        return False
+
+
 # ---------------------------------------------------------------- what users do (display views)
 def list_records(api: ApiClient, name: str, **query) -> list[dict] | None:
     """A list call of the user views (users, rides, charges, ...) as plain JSON records: they are only shown
     in tables, so no model class for each. None when the endpoint is turned off."""
     return _get(api, name, lambda r: _items(r.json()), query=query)
+
+
+def list_all_records(api: ApiClient, name: str, page: int = 1000, max_pages: int = 50, **query) -> list[dict] | None:
+    """Every record of a list call: pages through it with limit/offset (at most 1000 per call)."""
+    out: list[dict] = []
+    for i in range(max_pages):
+        batch = list_records(api, name, limit=page, offset=i * page, **query)
+        if batch is None:
+            return None if i == 0 else out
+        out.extend(batch)
+        if len(batch) < page:
+            break
+    return out
 
 
 def get_record(api: ApiClient, name: str, **path) -> dict | None:
@@ -129,7 +152,7 @@ def fetch_many(fn: Callable[[K], T], keys: Iterable[K], workers: int = 16) -> di
         try:
             return fn(k), None
         except (ApiError, TransportError, AuthNotConfigured, ValueError, KeyError, TypeError) as exc:
-            return None, str(exc)
+            return None, user_message(exc)
 
     if len(keys) <= 1:
         return {k: one(k) for k in keys}

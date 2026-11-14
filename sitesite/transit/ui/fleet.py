@@ -70,6 +70,7 @@ def _fragment(every_s: float | None):
 
 def _fleet(settings: Settings, area: Bounds, line_of: Callable[[int | None], str],
            gtfs_of: Callable[[int | None], str | None]) -> None:
+    data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     silent_s, offline_s = settings.fleet_silent_s, settings.fleet_offline_s
     try:
         devices, route_of, notes = fleet_statuses()

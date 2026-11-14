@@ -65,48 +65,20 @@ def _name(u: dict) -> str:
     return u.get("name") or ("(anonymous)" if u.get("tier") == "anonymous" else "(no name)")
 
 
-ROW_PX, PAGE_SIZE = 35, 15
+ROW_PX, MAX_ROWS_SHOWN = 35, 10
 
 
 def fit_height(n_rows: int) -> int:
-    """Tall enough for every row (plus room for a sideways scrollbar): a table never scrolls inside itself, so
-    the mouse wheel always scrolls the page. Long lists are split into pages instead (see _page)."""
-    return (n_rows + 1) * ROW_PX + 18
+    """Tall enough for every row plus room for a sideways scrollbar, so a short table never scrolls by a few
+    pixels; past MAX_ROWS_SHOWN rows the table scrolls inside itself."""
+    return (min(n_rows, MAX_ROWS_SHOWN) + 1) * ROW_PX + 18
 
 
-def _page(rows: list, key: str, size: int = PAGE_SIZE) -> tuple[list, int]:
-    """The rows of the current page, and the index of its first row. Draws ◀ ▶ under the table when needed
-    (call it, draw the table with the rows it gives, then call _pager)."""
-    pages = max(1, -(-len(rows) // size))
-    current = min(max(int(st.session_state.get(key, 0)), 0), pages - 1)
-    st.session_state[key] = current
-    return rows[current * size:(current + 1) * size], current * size
-
-
-def _pager(n_rows: int, key: str, size: int = PAGE_SIZE) -> None:
-    pages = max(1, -(-n_rows // size))
-    if pages == 1:
-        return
-    current = st.session_state.get(key, 0)
-
-    def go(to: int) -> None:
-        st.session_state[key] = to
-
-    b1, mid, b2 = st.columns([1, 6, 1], vertical_alignment="center")
-    b1.button("◀", key=f"{key}_prev", disabled=current == 0, on_click=go, args=(current - 1,), width="stretch")
-    first, last = current * size + 1, min((current + 1) * size, n_rows)
-    mid.caption(f"Page {current + 1} of {pages} · rows {first}–{last} of {n_rows}")
-    b2.button("▶", key=f"{key}_next", disabled=current >= pages - 1, on_click=go, args=(current + 1,),
-              width="stretch")
-
-
-def _table(rows: list[dict], empty: str, key: str):
+def _table(rows: list[dict], empty: str):
     if not rows:
         st.caption(empty)
         return
-    page, _ = _page(rows, key)
-    st.dataframe(pd.DataFrame(page), hide_index=True, width="stretch", height=fit_height(len(page)))
-    _pager(len(rows), key)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=fit_height(len(rows)))
 
 
 # ---------------------------------------------------------------- page
@@ -126,6 +98,7 @@ def _fragments(list_every_s: float | None, user_every_s: float | None):
 
 
 def _user_list(tz: ZoneInfo) -> None:
+    data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     users, err = data.users()
     if err:
         st.error(f"Users unavailable: {err}")
@@ -152,12 +125,6 @@ def _user_list(tz: ZoneInfo) -> None:
         return
 
     ss = st.session_state
-    signature = (query, tier, only_riding)
-    if ss.get("user_filter_sig") != signature:   # new filters: back to the first page
-        ss["user_filter_sig"] = signature
-        ss["user_list_page"] = 0
-    shown_all = shown
-    shown, _ = _page(shown_all, "user_list_page")
     ids = [u["id"] for u in shown]
     event = st.dataframe(
         pd.DataFrame([{
@@ -179,8 +146,7 @@ def _user_list(tz: ZoneInfo) -> None:
         hide_index=True,
         width="stretch",
     )
-    _pager(len(shown_all), "user_list_page")
-    st.caption(f"{len(shown_all)} of {len(users)} users. Click one to see it.")
+    st.caption(f"{len(shown)} of {len(users)} users. Click one to see it.")
     row = picked_row(event.selection if event else None)
     picked = ids[row] if row is not None and 0 <= row < len(ids) else None
     if picked is not None and picked != ss.get(K_LAST_USER_PICK):
@@ -191,6 +157,7 @@ def _user_list(tz: ZoneInfo) -> None:
 
 
 def _user_panel(tz: ZoneInfo) -> None:
+    data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     ss = st.session_state
     uid = ss.get(K_SELECTED_USER)
     if not uid:
@@ -230,7 +197,7 @@ def _user_panel(tz: ZoneInfo) -> None:
     tabs = st.tabs(labels, key=tab_key, default=labels[names.index(chosen)] if chosen in names else None,
                    on_change=_remember_tab, args=(tab_key,))
     with tabs[0]:
-        _rides(rec["rides"], tz, uid)
+        _rides(rec["rides"], tz)
     with tabs[1]:
         _table([{
             "Started": _when(c.get("startedAt"), tz),
@@ -242,26 +209,26 @@ def _user_panel(tz: ZoneInfo) -> None:
             "Paid with": c.get("paidWith") or "—",
             "Passengers": c.get("passengers"),
             "Ended": _when(c.get("endedAt"), tz),
-        } for c in rec["charges"]], "No charges.", key=f"charges_page_{uid}")
+        } for c in rec["charges"]], "No charges.")
     with tabs[2]:
         _table([{
             "Date": t.get("date"), "Time": t.get("time"), "Line": t.get("line"),
             "From": t.get("from"), "To": t.get("to"), "Fare (RON)": t.get("fareRon"),
             "km": t.get("distanceKm"), "min": t.get("durationMin"), "Bus": t.get("bus_id"),
-        } for t in rec["trips"]], "No trips.", key=f"trips_page_{uid}")
+        } for t in rec["trips"]], "No trips.")
     with tabs[3]:
         _table([{
             "Pass": p.get("name"), "Holder": p.get("holder"), "Card": _mask(p.get("cardNumber")),
             "Valid from": _when(p.get("validFrom"), tz), "Valid until": _when(p.get("validUntil"), tz),
             "Lines": _lines(p.get("lines")), "Verified": _yes(p.get("verified")),
             "Renewed": _when(p.get("last_renewed_at"), tz),
-        } for p in rec["passes"]], "No passes.", key=f"passes_page_{uid}")
+        } for p in rec["passes"]], "No passes.")
     with tabs[4]:
         _table([{
             "Received": _when(s.get("received_at"), tz), "Bus": s.get("bus_id"), "Slot": s.get("slot"),
             "Offset": s.get("slot_offset"), "RSSI": s.get("rssi"), "Clock synced": _yes(s.get("clock_synced")),
             "Accepted": _yes(s.get("accepted")), "Refused because": s.get("reject_reason") or "",
-        } for s in rec["sightings"]], "No sightings.", key=f"sightings_page_{uid}")
+        } for s in rec["sightings"]], "No sightings.")
     with tabs[5]:
         _account(user, tz)
 
@@ -272,14 +239,11 @@ def _remember_tab(tab_key: str) -> None:
         st.session_state[K_USER_TAB] = str(label).split(" (")[0]
 
 
-def _rides(rides: list[dict], tz: ZoneInfo, uid: str) -> None:
+def _rides(rides: list[dict], tz: ZoneInfo) -> None:
     if not rides:
         st.caption("No rides.")
         return
     ss = st.session_state
-    page_key = f"rides_page_{uid}"
-    all_rides = rides
-    rides, _ = _page(all_rides, page_key)
     ids = [r["session_id"] for r in rides]
     event = st.dataframe(
         pd.DataFrame([{
@@ -299,13 +263,12 @@ def _rides(rides: list[dict], tz: ZoneInfo, uid: str) -> None:
         hide_index=True,
         width="stretch",
     )
-    _pager(len(all_rides), page_key)
     row = picked_row(event.selection if event else None)
     picked = ids[row] if row is not None and 0 <= row < len(ids) else None
     if picked is not None and picked != ss.get(K_LAST_RIDE_PICK):
         ss[K_LAST_RIDE_PICK] = picked
         ss[K_SELECTED_RIDE] = picked
-    if ss.get(K_SELECTED_RIDE) in [r["session_id"] for r in all_rides]:
+    if ss.get(K_SELECTED_RIDE) in ids:
         _ride_detail(ss[K_SELECTED_RIDE], tz)
     else:
         st.caption("Click a ride to see how it went.")
@@ -343,7 +306,7 @@ def _ride_detail(session_id: str, tz: ZoneInfo) -> None:
         _table([{
             "Received": _when(s.get("received_at"), tz), "Bus": s.get("bus_id"),
             "Slot": s.get("slot"), "RSSI": s.get("rssi"),
-        } for s in sightings], "None.", key=f"ride_sightings_page_{session_id}")
+        } for s in sightings], "None.")
 
 
 def _account(user: dict, tz: ZoneInfo) -> None:
@@ -357,13 +320,13 @@ def _account(user: dict, tz: ZoneInfo) -> None:
     })
     st.markdown("**Sign-in methods**")
     _table([{"Provider": i.get("provider"), "Subject": _mask(i.get("subject"), 6)}
-            for i in user.get("identities") or []], "None (anonymous).", key=f"identities_page_{user.get('id')}")
+            for i in user.get("identities") or []], "None (anonymous).")
     st.markdown("**Phones (sessions)**")
     _table([{
         "Device": s.get("device_id"), "First login": _when(s.get("created_at"), tz),
         "Last refresh": _when(s.get("last_refresh_at"), tz), "Expires": _when(s.get("expires_at"), tz),
         "Revoked": _yes(s.get("revoked")), "Why": s.get("revoked_reason") or "",
-    } for s in user.get("sessions") or []], "No sessions.", key=f"sessions_page_{user.get('id')}")
+    } for s in user.get("sessions") or []], "No sessions.")
     st.markdown("**Push notifications**")
     _table([{"Platform": p.get("platform"), "Token": _mask(p.get("push_token"), 6)}
-            for p in user.get("push_devices") or []], "None registered.", key=f"push_page_{user.get('id')}")
+            for p in user.get("push_devices") or []], "None registered.")

@@ -8,6 +8,7 @@ import folium
 import streamlit as st
 from streamlit_folium import st_folium
 
+from transit.api.errors import CONNECTION_LOST
 from transit.colors import contrast_path_colors
 from transit.config import Settings
 from transit.domain import Vehicle
@@ -26,6 +27,8 @@ from transit.ui.line_tabs import render_bus_list, render_line_picker, render_lin
 from transit.ui.sidebar import render_sidebar
 from transit.ui.users import render_users_view
 from transit.ui.fleet import render_fleet_view
+from transit.ui.money import render_money_view
+from transit.ui.health import render_health_view
 
 st.set_page_config(page_title="Transit Admin", layout="wide")
 SETTINGS = Settings.from_env()
@@ -58,7 +61,22 @@ def main() -> None:
     feed = get_feed(gtfs_key, SETTINGS.simplify_m)
     state.init_state(SETTINGS.vehicle_source)
     controls = render_sidebar(feed, SETTINGS)
+    if not data.server_up_now():
+        data.render_connection_lost()   # one banner, /health every second, no other calls until it's back
+        return
     link, link_err = data.route_link(gtfs_key, feed)
+
+    if controls.view == "health":
+        def health_gtfs_of(api_rid: int | None) -> str | None:
+            rid = link.gtfs_id(api_rid)
+            return rid if rid in feed.routes else None
+        area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
+        render_health_view(feed, SETTINGS, area, health_gtfs_of, MAP_WIDTH_PX, live=controls.live_updates)
+        return
+
+    if controls.view == "money":
+        render_money_view(SETTINGS.tz, live=controls.live_updates, every_s=SETTINGS.money_refresh_s)
+        return
 
     if controls.view == "fleet":
         def gtfs_of(api_rid: int | None) -> str | None:
@@ -94,6 +112,7 @@ def main() -> None:
 def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -> None:
     """Map and side panel. With live updates on, this part alone re-runs every few seconds: the sidebar and
     the map's base layer stay as they are, only the buses, the trail and the panel are redrawn."""
+    data.require_server()
     if not controls.simulated:
         controls = replace(controls, now=datetime.now(SETTINGS.tz))
     sel_id = state.selected_route_id()
@@ -197,6 +216,9 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                     bid = int(selected)
                     st.subheader(f"Bus {bid}")
                     snap, snap_err = snapshot
+                    if snap_err or (snap and snap.errors.get("position") == CONNECTION_LOST):
+                        st.warning(CONNECTION_LOST)   # one note, not one per part of the panel
+                        return
                     info_fetched = (snap.info, None) if snap else (None, snap_err)
                     frame_fetched = (snap.frame, snap.errors.get("frame")) if snap else (None, snap_err)
                     devices_fetched = ((snap.devices, snap.errors), None) if snap else (None, snap_err)

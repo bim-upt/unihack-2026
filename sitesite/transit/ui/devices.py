@@ -98,8 +98,8 @@ def render_bus_devices(fetched, tz: ZoneInfo, max_age_s: float) -> None:
     now = datetime.now(timezone.utc)
     for ds in statuses:
         render_device_card(ds, tz, max_age_s, now)
-    for part, e in errors.items():
-        st.caption(f"{part}: {e}")
+    for e in dict.fromkeys(errors.values()):   # each message once
+        st.caption(e)
 
 
 def fleet_statuses() -> tuple[list[DeviceStatus], dict[int, int | None], list[str]]:
@@ -156,6 +156,7 @@ def _fragments(list_every_s: float | None, card_every_s: float | None):
 
 
 def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
+    data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     try:
         statuses, route_of, notes = fleet_statuses()
     except RuntimeError as exc:
@@ -208,6 +209,7 @@ def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
 
 
 def _device_card(tz: ZoneInfo, online_s: float, photo_every_s: float) -> None:
+    data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     picked = st.session_state.get(K_SELECTED_DEVICE)
     if not picked:
         st.caption("Click a device to see it.")

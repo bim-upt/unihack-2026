@@ -1,0 +1,4 @@
+[client]
+# Uncaught errors: the browser shows only a short generic message, no exception text or traceback
+# (the full traceback is still printed in the terminal). Use "full" while developing.
+showErrorDetails = "none"

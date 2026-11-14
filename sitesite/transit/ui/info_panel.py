@@ -144,8 +144,8 @@ def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_f
                 "Device uptime": fmt_uptime(p.uptime_ms),
                 "Capture interval": f"{info.capture_interval_ms / 1000:.1f} s" if info.capture_interval_ms else "—",
             })
-    for part, e in info.errors.items():
-        st.caption(f"{part}: {e}")
+    for e in dict.fromkeys(info.errors.values()):   # each message once
+        st.caption(e)
 
 
 def render_bus_history(history_fetched, tz: ZoneInfo) -> None:

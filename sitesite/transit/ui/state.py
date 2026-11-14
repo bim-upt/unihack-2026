@@ -38,12 +38,13 @@ def init_state(default_source: str = "live") -> None:
         ss[K_VIEW] = ss.pop(K_PENDING_VIEW)
 
 
-def open_bus_on_map(gtfs_route_id: str | None, bus_id: str) -> None:
-    """From another page: show this bus on its line in the map view (applied on the next full run)."""
+def open_bus_on_map(gtfs_route_id: str | None, bus_id: str | None) -> None:
+    """From another page: show this line (and bus, when given) in the map view (applied on the next full run)."""
     ss = st.session_state
     if gtfs_route_id:
         ss[K_PENDING] = gtfs_route_id
-    ss[K_PENDING_VEHICLE] = bus_id
+    if bus_id:
+        ss[K_PENDING_VEHICLE] = bus_id
     ss[K_PENDING_VIEW] = "map"
 
 
