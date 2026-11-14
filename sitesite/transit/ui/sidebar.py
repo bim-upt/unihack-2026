@@ -10,7 +10,7 @@ from ..gtfs import Feed
 from . import data, state
 
 SOURCE_LABELS = {"live": "Live (API)", "schedule": "Schedule (GTFS)"}
-VIEW_LABELS = {"map": "🗺️ Map", "devices": "📡 Devices"}
+VIEW_LABELS = {"map": "🗺️ Map", "devices": "📡 Devices", "users": "👤 Users"}
 
 
 @dataclass(frozen=True)
@@ -26,10 +26,11 @@ def render_sidebar(feed: Feed, settings: Settings) -> Controls:
     with st.sidebar:
         st.radio("View", list(VIEW_LABELS), key=state.K_VIEW, format_func=VIEW_LABELS.get, horizontal=True)
         view = state.view()
-        if view == "devices":
+        if view in ("devices", "users"):
+            selected_every = settings.live_refresh_s if view == "devices" else settings.users_refresh_s
             live_updates = st.toggle(
                 f"Live updates (list every {settings.devices_list_refresh_s:g} s, "
-                f"selected device every {settings.live_refresh_s:g} s)", key=state.K_LIVE_UPDATES)
+                f"selected {view[:-1]} every {selected_every:g} s)", key=state.K_LIVE_UPDATES)
             st.button("Refresh", on_click=data.clear)
             return Controls(now=datetime.now(settings.tz), simulated=False, source=state.vehicle_source(), view=view,
                             live_updates=live_updates)

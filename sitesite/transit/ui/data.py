@@ -10,7 +10,7 @@ import streamlit as st
 from ..api import (
     ApiClient, assemble_bus_snapshot, build_client, fetch_many, get_bus_live, get_bus_photo, get_bus_setup,
     get_capture_interval, get_route_positions, get_telemetry_history, list_bus_devices, list_buses, list_frames,
-    list_latest_telemetry, list_reports,
+    list_latest_telemetry, list_records, list_reports, get_record,
 )
 from ..gtfs import Feed
 from ..linking import RouteLink, match_routes
@@ -133,8 +133,34 @@ def capture_interval(bus_id: int):
     return _safe(lambda: get_capture_interval(api_client(), bus_id))
 
 
+# ---------------------------------------------------------------- users page
+USER_ACTIVITY = ("rides", "charges", "trips", "passes", "sightings")
+LIST_LIMIT = 1000   # the most a list call gives
+
+
+@st.cache_resource(ttl=5, show_spinner=False)
+def users():
+    return _safe(lambda: list_records(api_client(), "users", limit=LIST_LIMIT))
+
+
+@st.cache_resource(ttl=3, show_spinner=False)
+def user(user_id: str):
+    return _safe(lambda: get_record(api_client(), "user", user_id=user_id))
+
+
+@st.cache_resource(ttl=3, show_spinner=False)
+def user_activity(user_id: str):
+    """name -> (records, error) for the user's rides, charges, trips, passes and sightings, in parallel."""
+    return fetch_many(lambda name: list_records(api_client(), name, user_id=user_id, limit=LIST_LIMIT), USER_ACTIVITY)
+
+
+@st.cache_resource(ttl=3, show_spinner=False)
+def ride(session_id: str):
+    return _safe(lambda: get_record(api_client(), "ride", session_id=session_id))
+
+
 def clear() -> None:
     for fn in (route_positions, reports, buses, _bus_live, _bus_setup, _bus_photo,
-               fleet_devices, latest_telemetry, latest_frames, capture_interval):
+               fleet_devices, latest_telemetry, latest_frames, capture_interval, users, user, user_activity, ride):
         fn.clear()
     # the route link is left alone: it is rebuilt every 10 minutes on its own

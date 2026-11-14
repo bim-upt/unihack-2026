@@ -43,6 +43,7 @@ class Settings:
     live_refresh_s: float = 1.0
     photo_refresh_s: float = 5.0          # photo refresh when the server reports no capture interval
     devices_list_refresh_s: float = 10.0  # the Devices page list (the selected device follows live_refresh_s)
+    users_refresh_s: float = 5.0          # the Users page: the selected user (the list follows devices_list_refresh_s)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -55,4 +56,5 @@ class Settings:
             live_refresh_s=float(os.getenv("TRANSIT_LIVE_REFRESH_S") or 1),
             photo_refresh_s=float(os.getenv("TRANSIT_PHOTO_REFRESH_S") or 5),
             devices_list_refresh_s=float(os.getenv("TRANSIT_DEVICES_LIST_REFRESH_S") or 10),
+            users_refresh_s=float(os.getenv("TRANSIT_USERS_REFRESH_S") or 5),
         )

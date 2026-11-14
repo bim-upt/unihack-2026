@@ -24,6 +24,7 @@ from transit.ui.info_panel import (
 )
 from transit.ui.line_tabs import render_bus_list, render_line_picker, render_line_tabs
 from transit.ui.sidebar import render_sidebar
+from transit.ui.users import render_users_view
 
 st.set_page_config(page_title="Transit Admin", layout="wide")
 SETTINGS = Settings.from_env()
@@ -40,20 +41,28 @@ def get_hover_payload(gtfs_dir: str, _feed: Feed) -> dict:
     return hover_stops(_feed)
 
 
-# Streamlit fades elements that are being re-run ("stale"). With live updates every second that makes the
-# map and the panel flicker, so the fade is turned off.
-NO_STALE_FADE = """<style>
+# - Streamlit fades elements that are being re-run ("stale"). With live updates every second that makes the
+#   map and the panel flicker, so the fade is turned off.
+# - A table that scrolls keeps the mouse wheel: at its top or bottom the wheel no longer carries on to the page
+#   (.dvn-scroller is the scroll area of st.dataframe). Tables that fit have nothing to scroll: the page scrolls.
+PAGE_CSS = """<style>
 [data-stale="true"] { opacity: 1 !important; transition: none !important; }
+.stDataFrame .dvn-scroller { overscroll-behavior: contain; }
 </style>"""
 
 
 def main() -> None:
-    st.html(NO_STALE_FADE)
+    st.html(PAGE_CSS)
     gtfs_key = str(SETTINGS.gtfs_dir)
     feed = get_feed(gtfs_key, SETTINGS.simplify_m)
     state.init_state(SETTINGS.vehicle_source)
     controls = render_sidebar(feed, SETTINGS)
     link, link_err = data.route_link(gtfs_key, feed)
+
+    if controls.view == "users":
+        render_users_view(SETTINGS.tz, live=controls.live_updates, list_every_s=SETTINGS.devices_list_refresh_s,
+                          user_every_s=SETTINGS.users_refresh_s)
+        return
 
     if controls.view == "devices":
         def line_of(api_rid: int | None) -> str:

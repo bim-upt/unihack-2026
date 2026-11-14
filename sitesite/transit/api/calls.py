@@ -107,6 +107,18 @@ def list_pass_products(api: ApiClient) -> list[PassProduct] | None:
     return _list(api, "pass_catalog", PassProduct)
 
 
+# ---------------------------------------------------------------- what users do (display views)
+def list_records(api: ApiClient, name: str, **query) -> list[dict] | None:
+    """A list call of the user views (users, rides, charges, ...) as plain JSON records: they are only shown
+    in tables, so no model class for each. None when the endpoint is turned off."""
+    return _get(api, name, lambda r: _items(r.json()), query=query)
+
+
+def get_record(api: ApiClient, name: str, **path) -> dict | None:
+    """One record (a user, a ride) as plain JSON. None when unknown (404) or turned off."""
+    return _get(api, name, lambda r: r.json(), path=path)
+
+
 # ---------------------------------------------------------------- bulk helpers
 def fetch_many(fn: Callable[[K], T], keys: Iterable[K], workers: int = 16) -> dict[K, tuple[T | None, str | None]]:
     """Runs `fn(key)` for every key in parallel. The API has no bulk calls for these, so the per-bus

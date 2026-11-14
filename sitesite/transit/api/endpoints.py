@@ -40,6 +40,19 @@ class Endpoints:
     # reports and passes
     reports: Endpoint | None = Endpoint("GET", "/reports", params=(("line", "line"), ("kind", "kind")))
     pass_catalog: Endpoint | None = Endpoint("GET", "/passes/catalog")   # every pass product
+    # what users do (display views; lists are newest first)
+    users: Endpoint | None = Endpoint("GET", "/users", params=(("tier", "tier"), ("limit", "limit"), ("offset", "offset")))
+    user: Endpoint | None = Endpoint("GET", "/users/{user_id}")
+    sightings: Endpoint | None = Endpoint(
+        "GET", "/sightings", params=(("user_id", "user_id"), ("bus_id", "bus_id"), ("accepted", "accepted"), ("limit", "limit"), ("offset", "offset")))
+    rides: Endpoint | None = Endpoint(
+        "GET", "/rides", params=(("user_id", "user_id"), ("bus_id", "bus_id"), ("status", "status"), ("limit", "limit"), ("offset", "offset")))
+    ride: Endpoint | None = Endpoint("GET", "/rides/{session_id}")
+    charges: Endpoint | None = Endpoint("GET", "/charges", params=(("user_id", "user_id"), ("status", "status"), ("limit", "limit"), ("offset", "offset")))
+    trips: Endpoint | None = Endpoint("GET", "/trips", params=(("user_id", "user_id"), ("limit", "limit"), ("offset", "offset")))
+    passes: Endpoint | None = Endpoint("GET", "/passes", params=(("user_id", "user_id"), ("limit", "limit"), ("offset", "offset")))
+    ticket_verifications: Endpoint | None = Endpoint(
+        "GET", "/ticket-verifications", params=(("inspector_id", "inspector_id"), ("limit", "limit"), ("offset", "offset")))
 
     def names(self) -> list[str]:
         return [f.name for f in fields(self)]
