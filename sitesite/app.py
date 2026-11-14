@@ -9,7 +9,7 @@ from streamlit_folium import st_folium
 from transit.colors import contrast_path_colors
 from transit.config import Settings
 from transit.domain import Vehicle
-from transit.geometry import pad_bounds
+from transit.geometry import pad_bounds, view_for
 from transit.gtfs import Feed, load_feed
 from transit.mapview.layers import (
     add_hit_lines, add_route_lines, add_stops, add_trail, add_vehicles, build_base_map, hover_stops,
@@ -17,12 +17,15 @@ from transit.mapview.layers import (
 from transit.providers import ScheduleProvider, live_vehicles, trail_coords
 from transit.ui import data, state
 from transit.ui.devices import render_bus_devices, render_devices_view
-from transit.ui.info_panel import render_live_bus, render_network, render_route_header, render_schedule_vehicle
-from transit.ui.line_tabs import render_line_tabs
+from transit.ui.info_panel import (
+    render_bus_history, render_live_bus, render_network, render_route_header, render_schedule_vehicle,
+)
+from transit.ui.line_tabs import render_bus_list, render_line_picker, render_line_tabs
 from transit.ui.sidebar import render_sidebar
 
 st.set_page_config(page_title="Transit Admin", layout="wide")
 SETTINGS = Settings.from_env()
+MAP_WIDTH_PX = 850   # rough width of the map column, only used to pick a zoom that fits the line
 
 
 @st.cache_resource(show_spinner="Loading GTFS...")
@@ -96,8 +99,16 @@ def main() -> None:
 
     area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
     base_map = build_base_map(SETTINGS, area, get_hover_payload(gtfs_key, feed))
+    # zoom to the selected line; with none, zoom 0 is raised to the smallest zoom that fills the frame
+    route_box = feed.route_bounds(route.route_id) if route else None
+    if route_box:
+        center, zoom = view_for(route_box, MAP_WIDTH_PX, SETTINGS.map_height, SETTINGS.max_zoom)
+    else:
+        (s_, w_), (n_, e_) = area
+        center, zoom = ((s_ + n_) / 2, (w_ + e_) / 2), 0
 
-    col_map, col_info = st.columns([3, 1])
+    # left: the map with the line's reference tabs under it; right: the line, its buses, the picked bus
+    col_map, col_side = st.columns([3, 2], gap="medium")
     with col_map:
         result = st_folium(
             base_map,
@@ -105,14 +116,23 @@ def main() -> None:
             key="map",
             height=SETTINGS.map_height,
             use_container_width=True,
+            center=center,
+            zoom=zoom,
             returned_objects=["last_active_drawing", "last_object_clicked_tooltip"],
         )
 
+        if route:
+            render_line_tabs(feed, route, link, live=live, positions=positions,
+                             scheduled=scheduled, now=controls.now, tz=SETTINGS.tz)
+
     state.handle_map_result(result, sel_id, {v.vehicle_id for v in vehicles})
 
-    with col_info:
+    with col_side:
         if route is None:
-            render_network(len(feed.routes), len(feed.services_on(controls.now.date())), data.buses())
+            buses, buses_err = data.buses()
+            render_network(len(feed.routes), len(feed.services_on(controls.now.date())),
+                           None if buses is None else len(buses), buses_err)
+            render_line_picker(feed, link, buses)
         else:
             render_route_header(
                 route,
@@ -120,32 +140,30 @@ def main() -> None:
                 scheduled_count=len(scheduled),
                 notice=notice,
             )
+            render_bus_list(feed, route, live, vehicles, positions, selected)
             if not selected:
-                st.info("Click a bus on the map or in the Buses tab below.")
+                st.caption("Click a bus in the list or on the map.")
             elif live:
                 if selected.isdigit():
                     bid = int(selected)
-                    st.divider()
                     st.subheader(f"Bus {bid}")
-                    t_overview, t_devices = st.tabs(["Overview", "Devices"])
                     snap, snap_err = snapshot
                     info_fetched = (snap.info, None) if snap else (None, snap_err)
                     frame_fetched = (snap.frame, snap.errors.get("frame")) if snap else (None, snap_err)
                     devices_fetched = ((snap.devices, snap.errors), None) if snap else (None, snap_err)
+                    t_overview, t_devices, t_history = st.tabs(["Overview", "Devices", "History"])
                     with t_overview:
-                        render_live_bus(feed, route, bid, info_fetched, frame_fetched, history_fetched, SETTINGS.tz)
+                        render_live_bus(feed, route, bid, info_fetched, frame_fetched, SETTINGS.tz)
                     with t_devices:
                         render_bus_devices(devices_fetched, SETTINGS.tz, SETTINGS.device_online_s)
+                    with t_history:
+                        render_bus_history(history_fetched, SETTINGS.tz)
             else:
                 v = next((x for x in vehicles if x.vehicle_id == selected), None)
                 if v:
                     render_schedule_vehicle(v)
                 else:
                     st.info("This trip is no longer running.")
-
-    if route:
-        render_line_tabs(feed, route, link, live=live, vehicles=vehicles, positions=positions,
-                         scheduled=scheduled, now=controls.now, tz=SETTINGS.tz)
 
 
 main()

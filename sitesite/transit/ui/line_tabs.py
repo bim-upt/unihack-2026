@@ -16,12 +16,10 @@ from . import data, state
 from .info_panel import fmt_age, fmt_time, kv_table
 
 
-def render_line_tabs(feed: Feed, route: Route, link: RouteLink, *, live: bool, vehicles: list[Vehicle],
-                     positions: list[Position] | None, scheduled: list[Vehicle], now: datetime, tz: ZoneInfo) -> None:
-    st.subheader(f"Line {route.short_name}")
-    t_buses, t_reports, t_stops, t_line = st.tabs(["Buses", "Reports", "Stops", "Line"])
-    with t_buses:
-        _buses(feed, route, live, vehicles, positions)
+def render_line_tabs(feed: Feed, route: Route, link: RouteLink, *, live: bool, positions: list[Position] | None,
+                     scheduled: list[Vehicle], now: datetime, tz: ZoneInfo) -> None:
+    """Reference info about the line, under the map."""
+    t_reports, t_stops, t_line = st.tabs(["Reports", "Stops", "Line"])
     with t_reports:
         _reports(route, tz)
     with t_stops:
@@ -30,40 +28,42 @@ def render_line_tabs(feed: Feed, route: Route, link: RouteLink, *, live: bool, v
         _line(feed, route, link, live, positions, scheduled, now)
 
 
-def _bus_table(rows: list[dict], ids: list[str]) -> None:
+def _bus_table(rows: list[dict], ids: list[str], selected: str | None) -> None:
     st.session_state[state.K_BUS_TABLE_IDS] = ids
     if not rows:
-        st.info("No buses.")
+        st.caption("No buses on this line right now.")
         return
+    # the selected bus is marked so the list and the details below it read as one
+    for row, vid in zip(rows, ids):
+        row[" "] = "▶" if vid == selected else ""
+    df = pd.DataFrame(rows)
     st.dataframe(
-        pd.DataFrame(rows),
+        df[[" "] + [c for c in df.columns if c != " "]],
         key=state.K_BUS_TABLE,
         on_select=state.on_bus_table_select,
         selection_mode=["single-row", "single-cell"],   # a click on any cell picks its bus
         hide_index=True,
         width="stretch",
+        height=min(36 * (len(rows) + 1) + 3, 220),
+        column_config={" ": st.column_config.TextColumn(width=24)},
     )
-    st.caption("Click a bus to show it.")
 
 
-def _buses(feed: Feed, route: Route, live: bool, vehicles: list[Vehicle], positions: list[Position] | None) -> None:
+def render_bus_list(feed: Feed, route: Route, live: bool, vehicles: list[Vehicle],
+                    positions: list[Position] | None, selected: str | None) -> None:
+    """The buses of the line, in the side panel. Clicking one selects it (same as clicking it on the map)."""
     if not live:
-        rows = [{
+        _bus_table([{
             "Trip": v.trip_id,
-            "Heading to": v.headsign,
-            "Previous stop": v.prev_stop,
+            "To": v.headsign,
             "Next stop": v.next_stop,
-            "Speed (km/h)": v.speed_kmh,
-        } for v in vehicles]
-        _bus_table(rows, [v.vehicle_id for v in vehicles])
+        } for v in vehicles], [v.vehicle_id for v in vehicles], selected)
         return
 
     if positions is None:
         st.session_state[state.K_BUS_TABLE_IDS] = []
-        st.info("No live data for this line (see the note beside the map).")
         return
 
-    on_map = {v.vehicle_id for v in vehicles}
     ordered = sorted(positions, key=lambda p: p.bus_id)
     rows = []
     for p in ordered:
@@ -71,14 +71,40 @@ def _buses(feed: Feed, route: Route, live: bool, vehicles: list[Vehicle], positi
         age = p.age_s()
         rows.append({
             "Bus": p.bus_id,
-            "Speed (km/h)": None if p.speed_kmh is None else round(p.speed_kmh),
-            "GPS": "fix" if p.fix_ok is not False else "no fix",
-            "Source": "simulated" if p.sim else "real",
-            "Last update": fmt_age(age) if age is not None else "clock not set",
-            "Nearest stop": ns[0].name if ns else "—",
-            "On map": str(p.bus_id) in on_map,
+            "km/h": None if p.speed_kmh is None else round(p.speed_kmh),
+            "Updated": fmt_age(age) if age is not None else "clock not set",
+            "Near": ns[0].name if ns else "—",
         })
-    _bus_table(rows, [str(p.bus_id) for p in ordered])
+    _bus_table(rows, [str(p.bus_id) for p in ordered], selected)
+
+
+def render_line_picker(feed: Feed, link: RouteLink, buses) -> None:
+    """With no line selected: the lines that have buses on the server. Clicking one opens it."""
+    counts: dict[str, int] = {}
+    for b in buses or []:
+        rid = link.gtfs_id(b.route_id)
+        if rid in feed.routes:
+            counts[rid] = counts.get(rid, 0) + 1
+    if not counts:
+        st.caption("No line has buses on the server.")
+        return
+    ids = [r for r in feed.sorted_route_ids() if r in counts]
+    st.session_state[state.K_LINE_TABLE_IDS] = ids
+    st.markdown("**Lines with buses**")
+    st.dataframe(
+        pd.DataFrame([{
+            "Line": feed.routes[r].short_name,
+            "Mode": feed.routes[r].mode_name,
+            "Buses": counts[r],
+            "Name": feed.routes[r].long_name,
+        } for r in ids]),
+        key=state.K_LINE_TABLE,
+        on_select=state.on_line_table_select,
+        selection_mode=["single-row", "single-cell"],
+        hide_index=True,
+        width="stretch",
+    )
+    st.caption("Click a line (here or on the map) to open it.")
 
 
 def _reports(route: Route, tz: ZoneInfo) -> None:

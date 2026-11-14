@@ -42,106 +42,100 @@ def kv_table(rows: dict) -> None:
 
 
 # ---------------------------------------------------------------- panels
-def render_network(n_routes: int, n_services: int, buses_fetched) -> None:
+def render_network(n_routes: int, n_services: int, n_buses: int | None, api_err: str | None) -> None:
     st.subheader("Network")
-    st.metric("Routes", n_routes)
-    st.metric("Active services today", n_services)
-    buses, err = buses_fetched
-    if err:
-        st.caption(f"API: {err}")
-    elif buses is not None:
-        st.metric("Buses on the server", len(buses))
-    st.info("Click a line on the map (or use the sidebar).")
+    parts = [f"**{n_routes}** lines", f"**{n_services}** services today"]
+    if n_buses is not None:
+        parts.append(f"**{n_buses}** buses on the server")
+    st.markdown(" · ".join(parts))
+    if api_err:
+        st.caption(f"API: {api_err}")
 
 
 def render_route_header(route: Route, *, live_count: int | None, scheduled_count: int, notice: str | None) -> None:
-    st.subheader(f"{route.mode_name} {route.short_name}")
-    st.caption(route.long_name)
+    st.subheader(f"Line {route.short_name}")
+    live = "—" if live_count is None else live_count
+    st.caption(f"{route.mode_name} · {route.long_name}  \n**{live}** live · **{scheduled_count}** scheduled now")
     if notice:
         st.warning(notice)
-    c1, c2 = st.columns(2)
-    c1.metric("Live buses", "—" if live_count is None else live_count)
-    c2.metric("Scheduled now", scheduled_count)
 
 
-def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_fetched,
-                    history_fetched, tz: ZoneInfo) -> None:
+def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_fetched, tz: ZoneInfo) -> None:
+    """Overview tab of the selected bus."""
     info, err = info_fetched
     if err or info is None:
         st.error(f"Bus data unavailable: {err or 'no answer'}")
         return
 
     p = info.position
+    facts = []
     if p is None:
         st.warning("The server has no position for this bus.")
     else:
         age = p.age_s()
+        facts.append(f"**{p.speed_kmh:.0f} km/h**" if p.speed_kmh is not None else "speed —")
+    facts.append(f"**{'—' if info.occupancy is None else info.occupancy}** passengers")
+    if p and p.latlon:
+        ns = nearest_stop(feed, route.route_id, *p.latlon)
+        if ns:
+            facts.append(f"near **{ns[0].name}** ({ns[1]:.0f} m)")
+    st.markdown(" · ".join(facts))
+    if p:
         st.caption(" · ".join([
             "simulated" if p.sim else "real GPS",
             "GPS fix" if p.fix_ok is not False else "no GPS fix",
             f"updated {fmt_age(age)}" if age is not None else "device clock not set",
         ]))
 
-    c1, c2 = st.columns(2)
-    c1.metric("Speed", f"{p.speed_kmh:.0f} km/h" if p and p.speed_kmh is not None else "—")
-    c2.metric("Passengers", "—" if info.occupancy is None else info.occupancy)
-
-    if p and p.latlon:
-        ns = nearest_stop(feed, route.route_id, *p.latlon)
-        if ns:
-            st.write(f"**Nearest stop:** {ns[0].name} ({ns[1]:.0f} m)")
-
-    if p:
-        kv_table({
-            "Position": f"{p.lat:.6f}, {p.lon:.6f}" if p.latlon else "—",
-            "Position time": fmt_time(p.time, tz),
-            "API route": "—" if p.route_id is None else p.route_id,
-            "Device": p.device_id or "—",
-            "Boot ID": p.boot_id or "—",
-            "Message seq": "—" if p.seq is None else p.seq,
-            "Device uptime": fmt_uptime(p.uptime_ms),
-        })
-
-    st.markdown("**Camera**")
-    if info.capture_interval_ms:
-        st.caption(f"Capture interval: {info.capture_interval_ms / 1000:.1f} s")
     frame, ferr = frame_fetched
     if ferr:
         st.caption(f"Photo unavailable: {ferr}")
-    elif frame is None:
-        st.caption("No photo.")
-    else:
+    elif frame is not None:
         cap = []
         if frame.meta and frame.meta.captured_at:
             cap.append(fmt_time(frame.meta.captured_at, tz))
         if frame.meta and frame.meta.width and frame.meta.height:
             cap.append(f"{frame.meta.width}x{frame.meta.height}")
-        st.image(frame.jpeg, caption=" · ".join(cap) or None)
+        st.image(frame.jpeg, caption=" · ".join(cap) or None, width="stretch")
+    else:
+        st.caption("No photo yet.")
 
-    history, herr = history_fetched
-    with st.expander(f"Recent positions ({len(history) if history else 0})"):
-        if herr:
-            st.caption(herr)
-        elif not history:
-            st.caption("No history.")
-        else:
-            rows = sorted(history, key=lambda t: (t.ts or 0, t.uptime_ms or 0), reverse=True)
-            st.dataframe(pd.DataFrame([{
-                "Time": fmt_time(t.time, tz),
-                "Speed (km/h)": t.speed_kmh,
-                "Lat": t.lat,
-                "Lon": t.lon,
-                "Fix": t.fix_ok,
-                "Simulated": t.sim,
-            } for t in rows]), hide_index=True, width="stretch")
-
+    if p:
+        with st.expander("Details"):
+            kv_table({
+                "Position": f"{p.lat:.6f}, {p.lon:.6f}" if p.latlon else "—",
+                "Position time": fmt_time(p.time, tz),
+                "API route": "—" if p.route_id is None else p.route_id,
+                "Beacon": p.device_id or "—",
+                "Boot ID": p.boot_id or "—",
+                "Message seq": "—" if p.seq is None else p.seq,
+                "Device uptime": fmt_uptime(p.uptime_ms),
+                "Capture interval": f"{info.capture_interval_ms / 1000:.1f} s" if info.capture_interval_ms else "—",
+            })
     for part, e in info.errors.items():
         st.caption(f"{part}: {e}")
 
 
+def render_bus_history(history_fetched, tz: ZoneInfo) -> None:
+    """History tab of the selected bus."""
+    history, herr = history_fetched
+    if herr:
+        st.caption(herr)
+    elif not history:
+        st.caption("No history.")
+    else:
+        rows = sorted(history, key=lambda t: (t.ts or 0, t.uptime_ms or 0), reverse=True)
+        st.dataframe(pd.DataFrame([{
+            "Time": fmt_time(t.time, tz),
+            "km/h": t.speed_kmh,
+            "Lat": t.lat,
+            "Lon": t.lon,
+            "Fix": t.fix_ok,
+        } for t in rows]), hide_index=True, width="stretch", height=260)
+
+
 def render_schedule_vehicle(v: Vehicle) -> None:
-    st.divider()
-    st.subheader(f"Trip {v.trip_id}")
+    st.markdown(f"**Trip {v.trip_id}**")
     kv_table({
         "Heading to": v.headsign or "—",
         "Previous stop": v.prev_stop or "—",

@@ -49,6 +49,18 @@ class Feed:
             self._stop_dist[trip.trip_id] = None if shape is None else shape.project(trip.coords)
         return self._stop_dist[trip.trip_id]
 
+    def route_bounds(self, route_id: str) -> Bounds | None:
+        """Box around one line's shapes (or its stops when it has no shape)."""
+        coords = [self.shapes[s].coords for s in self.shapes_by_route.get(route_id, []) if s in self.shapes]
+        if coords:
+            pts = np.vstack(coords)
+        else:
+            pts = np.array([[self.stops[s].lat, self.stops[s].lon] for s in self.stops_by_route.get(route_id, [])
+                            if s in self.stops])
+        if not len(pts):
+            return None
+        return (float(pts[:, 0].min()), float(pts[:, 1].min())), (float(pts[:, 0].max()), float(pts[:, 1].max()))
+
     def bounds(self) -> Bounds:
         if self.shapes:
             pts = np.vstack([s.coords for s in self.shapes.values()])

@@ -16,6 +16,8 @@ K_SOURCE = "vehicle_source"
 K_BUS_TABLE = "bus_table"       
 K_BUS_TABLE_IDS = "bus_table_ids"
 K_TRACKER = "heading_tracker"
+K_LINE_TABLE = "line_table"
+K_LINE_TABLE_IDS = "line_table_ids"
 K_VIEW = "view"                 # "map" | "devices"
 
 
@@ -78,6 +80,17 @@ def on_bus_table_select() -> None:
     ids = ss.get(K_BUS_TABLE_IDS) or []
     if rows and 0 <= rows[0] < len(ids):
         ss[K_VEHICLE] = ids[rows[0]]
+
+
+def on_line_table_select() -> None:
+    """A line picked in the side panel's list opens like a line clicked on the map."""
+    ss = st.session_state
+    sel = (ss.get(K_LINE_TABLE) or {}).get("selection") or {}
+    rows = sel.get("rows") or [c[0] for c in sel.get("cells") or []]
+    ids = ss.get(K_LINE_TABLE_IDS) or []
+    if rows and 0 <= rows[0] < len(ids):
+        ss[K_ROUTE] = ids[rows[0]]
+        ss[K_VEHICLE] = None
 
 
 # ---------------------------------------------------------------- map clicks

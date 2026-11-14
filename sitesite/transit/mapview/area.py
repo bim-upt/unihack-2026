@@ -18,7 +18,8 @@ class LockToArea(MacroElement):
   function lock() {
     var s = map.getSize();
     if (!s.x || !s.y) return;
-    map.setMinZoom(map.getBoundsZoom(area, false));
+    // inside=true: the area always covers the whole frame, so no grey shows around it
+    map.setMinZoom(map.getBoundsZoom(area, true));
   }
   map.whenReady(lock);
   map.on("resize", lock);
