@@ -33,14 +33,19 @@ class Settings:
 
     # vehicles
     vehicle_source: str = "live"                    
-    route_map_file: Path = Path("route_map.csv")                       
     history_limit: int = 50                         
+    # positions older than this are hidden from the map; None = show the last position however old
+    # (test data comes in bursts, so hiding it would leave the map empty)
+    live_max_age_s: float | None = None
+    # a device counts as online when the server heard from it within this many seconds
+    device_online_s: float = 300.0
 
     @classmethod
     def from_env(cls) -> "Settings":
         source = os.getenv("TRANSIT_VEHICLE_SOURCE", "live")
         return cls(
             gtfs_dir=Path(os.getenv("TRANSIT_GTFS_DIR", "gtfs")),
-            route_map_file=Path(os.getenv("TRANSIT_ROUTE_MAP", "route_map.csv")),
             vehicle_source=source if source in VEHICLE_SOURCES else "live",
+            live_max_age_s=float(os.environ["TRANSIT_LIVE_MAX_AGE_S"]) if os.getenv("TRANSIT_LIVE_MAX_AGE_S") else None,
+            device_online_s=float(os.getenv("TRANSIT_DEVICE_ONLINE_S") or 300),
         )

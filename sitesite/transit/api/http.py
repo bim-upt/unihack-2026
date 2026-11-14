@@ -35,7 +35,7 @@ class Transport:
             allowed_methods=frozenset({"GET"}),
             raise_on_status=False,
         )
-        adapter = HTTPAdapter(max_retries=retry)
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=16)   # fetch_many runs 16 at once
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 

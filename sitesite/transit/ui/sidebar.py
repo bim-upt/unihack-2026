@@ -10,6 +10,7 @@ from ..gtfs import Feed
 from . import data, state
 
 SOURCE_LABELS = {"live": "Live (API)", "schedule": "Schedule (GTFS)"}
+VIEW_LABELS = {"map": "🗺️ Map", "devices": "📡 Devices"}
 
 
 @dataclass(frozen=True)
@@ -17,10 +18,17 @@ class Controls:
     now: datetime
     simulated: bool
     source: str          # "live" | "schedule"
+    view: str            # "map" | "devices"
 
 
 def render_sidebar(feed: Feed, settings: Settings) -> Controls:
     with st.sidebar:
+        st.radio("View", list(VIEW_LABELS), key=state.K_VIEW, format_func=VIEW_LABELS.get, horizontal=True)
+        view = state.view()
+        if view == "devices":
+            st.button("Refresh", on_click=data.clear)
+            return Controls(now=datetime.now(settings.tz), simulated=False, source=state.vehicle_source(), view=view)
+
         st.header("Controls")
         st.radio(
             "Vehicles",
@@ -49,4 +57,4 @@ def render_sidebar(feed: Feed, settings: Settings) -> Controls:
                 now = now.replace(hour=tt.hour, minute=tt.minute, second=tt.second)
         st.caption(f"Reference time: {now:%Y-%m-%d %H:%M:%S}")
         st.button("Refresh", on_click=data.clear)
-    return Controls(now=now, simulated=simulated, source=source)
+    return Controls(now=now, simulated=simulated, source=source, view=view)

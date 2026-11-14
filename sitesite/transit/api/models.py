@@ -143,6 +143,7 @@ class Telemetry(Position):
     boot_id: str | None = None     
     seq: int | None = None         
     uptime_ms: int | None = None
+    received_at: datetime | None = None   # server clock
 
     @classmethod
     def from_json(cls, j: dict) -> "Telemetry":
@@ -152,6 +153,7 @@ class Telemetry(Position):
             boot_id=_pick(j, "boot_id", "bootId"),
             seq=_i(_pick(j, "seq")),
             uptime_ms=_i(_pick(j, "uptime_ms", "uptimeMs")),
+            received_at=_dt(_pick(j, "received_at", "receivedAt")),
         )
 
 
@@ -165,6 +167,7 @@ class Frame:
     capture_ts: int | None        
     width: int | None
     height: int | None
+    received_at: datetime | None = None   # server clock
 
     @property
     def captured_at(self) -> datetime | None:
@@ -180,6 +183,7 @@ class Frame:
             capture_ts=_i(_pick(j, "capture_ts", "captureTs")),
             width=_i(_pick(j, "width")) or w,
             height=_i(_pick(j, "height")) or h,
+            received_at=_dt(_pick(j, "received_at", "receivedAt")),
         )
 
 
@@ -276,6 +280,25 @@ class PassProduct:
             price_ron=_f(_pick(j, "priceRon", "price_ron")),
             lines=lines if isinstance(lines, str) else tuple(str(x) for x in lines),
         )
+
+
+# ------------------- aggregate for the device views
+@dataclass(frozen=True)
+class DeviceStatus:
+    """One device and the newest thing the server got from it."""
+    device: Device
+    telemetry: Telemetry | None = None       # beacon: its newest message
+    frame: Frame | None = None               # camera: the bus's newest frame (frames carry no device id)
+    capture_interval_ms: int | None = None   # camera
+
+    @property
+    def last_seen(self) -> datetime | None:
+        """Server receive time of the newest message, else the device's own clock."""
+        if self.telemetry:
+            return self.telemetry.received_at or self.telemetry.time
+        if self.frame:
+            return self.frame.received_at or self.frame.captured_at
+        return None
 
 
 # ------------------- aggregate for the bus panel

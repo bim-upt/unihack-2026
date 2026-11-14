@@ -39,11 +39,11 @@ def _bus_table(rows: list[dict], ids: list[str]) -> None:
         pd.DataFrame(rows),
         key=state.K_BUS_TABLE,
         on_select=state.on_bus_table_select,
-        selection_mode="single-row",
+        selection_mode=["single-row", "single-cell"],   # a click on any cell picks its bus
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
-    st.caption("Select a row to show that bus.")
+    st.caption("Click a bus to show it.")
 
 
 def _buses(feed: Feed, route: Route, live: bool, vehicles: list[Vehicle], positions: list[Position] | None) -> None:
@@ -96,7 +96,7 @@ def _reports(route: Route, tz: ZoneInfo) -> None:
             "Confirmations": r.confirmations,
             "Reported": fmt_time(r.created_at, tz),
             "Expires": fmt_time(r.expires_at, tz),
-        } for r in items]), hide_index=True, use_container_width=True)
+        } for r in items]), hide_index=True, width="stretch")
 
 
 def _stops(feed: Feed, route: Route) -> None:
@@ -110,7 +110,7 @@ def _stops(feed: Feed, route: Route) -> None:
         "Stop ID": s,
         "Lat": round(feed.stops[s].lat, 6),
         "Lon": round(feed.stops[s].lon, 6),
-    } for i, s in enumerate(sids)]), hide_index=True, use_container_width=True)
+    } for i, s in enumerate(sids)]), hide_index=True, width="stretch")
     st.caption("Order of first appearance in the timetable's trips.")
 
 
@@ -124,7 +124,7 @@ def _line(feed: Feed, route: Route, link: RouteLink, live: bool, positions: list
         "Name": route.long_name or "—",
         "Mode": route.mode_name,
         "GTFS route_id": route.route_id,
-        "API route_id": api_rid if api_rid is not None else "not mapped (route_map.csv)",
+        "API route_id": api_rid if api_rid is not None else "no bus on the server drives this line",
         "Color": route.color,
         "Stops": len(feed.stops_by_route.get(route.route_id, [])),
         "Shapes": len(feed.shapes_by_route.get(route.route_id, [])),

@@ -66,8 +66,6 @@ def render_route_header(route: Route, *, live_count: int | None, scheduled_count
 
 def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_fetched,
                     history_fetched, tz: ZoneInfo) -> None:
-    st.divider()
-    st.subheader(f"Bus {bus_id}")
     info, err = info_fetched
     if err or info is None:
         st.error(f"Bus data unavailable: {err or 'no answer'}")
@@ -104,13 +102,6 @@ def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_f
             "Device uptime": fmt_uptime(p.uptime_ms),
         })
 
-    st.markdown("**Devices**")
-    if info.devices:
-        st.dataframe(pd.DataFrame([{"Device": d.device_id, "Role": d.role or "—"} for d in info.devices]),
-                     hide_index=True, use_container_width=True)
-    else:
-        st.caption("No devices listed.")
-
     st.markdown("**Camera**")
     if info.capture_interval_ms:
         st.caption(f"Capture interval: {info.capture_interval_ms / 1000:.1f} s")
@@ -142,7 +133,7 @@ def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_f
                 "Lon": t.lon,
                 "Fix": t.fix_ok,
                 "Simulated": t.sim,
-            } for t in rows]), hide_index=True, use_container_width=True)
+            } for t in rows]), hide_index=True, width="stretch")
 
     for part, e in info.errors.items():
         st.caption(f"{part}: {e}")

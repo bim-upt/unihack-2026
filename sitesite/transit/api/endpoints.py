@@ -39,7 +39,7 @@ class Endpoints:
     occupancy: Endpoint | None = Endpoint("GET", "/buses/{bus_id}/occupancy")
     # reports and passes
     reports: Endpoint | None = Endpoint("GET", "/reports", params=(("line", "line"), ("kind", "kind")))
-    pass_product: Endpoint | None = Endpoint("GET", "/passes/catalog/{product_id}")   # sheet shows no id; assumed
+    pass_catalog: Endpoint | None = Endpoint("GET", "/passes/catalog")   # every pass product
 
     def names(self) -> list[str]:
         return [f.name for f in fields(self)]

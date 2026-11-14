@@ -47,14 +47,14 @@ class HeadingTracker:
 
 
 def live_vehicles(positions: list[Position], route: Route, feed: Feed, tracker: HeadingTracker,
-                  max_age_s: float, now: datetime | None = None) -> list[Vehicle]:
+                  max_age_s: float | None, now: datetime | None = None) -> list[Vehicle]:
     out = []
     for p in positions:
         ll = p.latlon
         if ll is None:
             continue
         age = p.age_s(now)
-        if age is not None and age > max_age_s:
+        if max_age_s is not None and age is not None and age > max_age_s:
             continue
         ns = nearest_stop(feed, route.route_id, *ll)
         out.append(Vehicle(

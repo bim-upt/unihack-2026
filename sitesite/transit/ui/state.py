@@ -16,12 +16,13 @@ K_SOURCE = "vehicle_source"
 K_BUS_TABLE = "bus_table"       
 K_BUS_TABLE_IDS = "bus_table_ids"
 K_TRACKER = "heading_tracker"
+K_VIEW = "view"                 # "map" | "devices"
 
 
 def init_state(default_source: str = "live") -> None:
     ss = st.session_state
     for k, v in ((K_ROUTE, ""), (K_VEHICLE, None), (K_LAST_TIP, None), (K_LAST_DRAWING, None),
-                 (K_BLOCK, None), (K_SOURCE, default_source), (K_BUS_TABLE_IDS, [])):
+                 (K_BLOCK, None), (K_SOURCE, default_source), (K_BUS_TABLE_IDS, []), (K_VIEW, "map")):
         ss.setdefault(k, v)
     if K_PENDING in ss:
         ss[K_ROUTE] = ss.pop(K_PENDING)
@@ -34,6 +35,10 @@ def selected_route_id() -> str | None:
 
 def selected_vehicle_id() -> str | None:
     return st.session_state[K_VEHICLE]
+
+
+def view() -> str:
+    return st.session_state[K_VIEW]
 
 
 def vehicle_source() -> str:
@@ -68,8 +73,8 @@ def on_source_change() -> None:
 def on_bus_table_select() -> None:
     """Runs before the rerun, so the map already highlights the picked bus."""
     ss = st.session_state
-    sel = ss.get(K_BUS_TABLE) or {}
-    rows = (sel.get("selection") or {}).get("rows") or []
+    sel = (ss.get(K_BUS_TABLE) or {}).get("selection") or {}
+    rows = sel.get("rows") or [c[0] for c in sel.get("cells") or []]   # a clicked cell picks its row
     ids = ss.get(K_BUS_TABLE_IDS) or []
     if rows and 0 <= rows[0] < len(ids):
         ss[K_VEHICLE] = ids[rows[0]]
