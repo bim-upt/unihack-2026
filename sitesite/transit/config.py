@@ -44,6 +44,9 @@ class Settings:
     photo_refresh_s: float = 5.0          # photo refresh when the server reports no capture interval
     devices_list_refresh_s: float = 10.0  # the Devices page list (the selected device follows live_refresh_s)
     users_refresh_s: float = 5.0          # the Users page: the selected user (the list follows devices_list_refresh_s)
+    fleet_refresh_s: float = 15.0         # the Fleet page (all buses at once: kept slow, the server is slow)
+    fleet_silent_s: float = 60.0          # no sign of life for longer: "silent"
+    fleet_offline_s: float = 600.0        # ... and for longer than this: "offline"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -57,4 +60,7 @@ class Settings:
             photo_refresh_s=float(os.getenv("TRANSIT_PHOTO_REFRESH_S") or 5),
             devices_list_refresh_s=float(os.getenv("TRANSIT_DEVICES_LIST_REFRESH_S") or 10),
             users_refresh_s=float(os.getenv("TRANSIT_USERS_REFRESH_S") or 5),
+            fleet_refresh_s=float(os.getenv("TRANSIT_FLEET_REFRESH_S") or 15),
+            fleet_silent_s=float(os.getenv("TRANSIT_FLEET_SILENT_S") or 60),
+            fleet_offline_s=float(os.getenv("TRANSIT_FLEET_OFFLINE_S") or 600),
         )

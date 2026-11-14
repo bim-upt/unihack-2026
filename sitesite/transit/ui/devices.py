@@ -102,7 +102,7 @@ def render_bus_devices(fetched, tz: ZoneInfo, max_age_s: float) -> None:
         st.caption(f"{part}: {e}")
 
 
-def _fleet_statuses() -> tuple[list[DeviceStatus], dict[int, int | None], list[str]]:
+def fleet_statuses() -> tuple[list[DeviceStatus], dict[int, int | None], list[str]]:
     """Every device of every bus. About 2 + (number of buses x 2) calls, all but two in parallel, and the
     device lists are cached for minutes, so a rerun (clicking a row) is usually free."""
     buses, err = data.buses()
@@ -141,8 +141,12 @@ def render_devices_view(line_of: Callable[[int | None], str], tz: ZoneInfo, onli
     `card_every_s`; each part re-runs alone, the rest of the page stays as it is."""
     st.title("Devices")
     list_part, card_part = _fragments(list_every_s if live else None, card_every_s if live else None)
-    list_part(line_of, online_s)
-    card_part(tz, online_s, photo_every_s)
+    # list on the left, the picked device beside it: visible at once, also when arriving from the Fleet page
+    col_list, col_card = st.columns([3, 2], gap="medium")
+    with col_list:
+        list_part(line_of, online_s)
+    with col_card:
+        card_part(tz, online_s, photo_every_s)
 
 
 @functools.lru_cache(maxsize=None)
@@ -153,7 +157,7 @@ def _fragments(list_every_s: float | None, card_every_s: float | None):
 
 def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
     try:
-        statuses, route_of, notes = _fleet_statuses()
+        statuses, route_of, notes = fleet_statuses()
     except RuntimeError as exc:
         st.error(str(exc))
         return

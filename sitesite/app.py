@@ -25,6 +25,7 @@ from transit.ui.info_panel import (
 from transit.ui.line_tabs import render_bus_list, render_line_picker, render_line_tabs
 from transit.ui.sidebar import render_sidebar
 from transit.ui.users import render_users_view
+from transit.ui.fleet import render_fleet_view
 
 st.set_page_config(page_title="Transit Admin", layout="wide")
 SETTINGS = Settings.from_env()
@@ -58,6 +59,18 @@ def main() -> None:
     state.init_state(SETTINGS.vehicle_source)
     controls = render_sidebar(feed, SETTINGS)
     link, link_err = data.route_link(gtfs_key, feed)
+
+    if controls.view == "fleet":
+        def gtfs_of(api_rid: int | None) -> str | None:
+            rid = link.gtfs_id(api_rid)
+            return rid if rid in feed.routes else None
+
+        def fleet_line(api_rid: int | None) -> str:
+            rid = gtfs_of(api_rid)
+            return feed.routes[rid].short_name if rid else f"? (API route {api_rid})"
+        area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
+        render_fleet_view(SETTINGS, area, fleet_line, gtfs_of, live=controls.live_updates)
+        return
 
     if controls.view == "users":
         render_users_view(SETTINGS.tz, live=controls.live_updates, list_every_s=SETTINGS.devices_list_refresh_s,

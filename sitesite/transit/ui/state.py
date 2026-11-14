@@ -19,7 +19,9 @@ K_TRACKER = "heading_tracker"
 K_LINE_TABLE = "line_table"
 K_LINE_TABLE_IDS = "line_table_ids"
 K_LIVE_UPDATES = "live_updates"
-K_VIEW = "view"                 # "map" | "devices"
+K_VIEW = "view"                 # "map" | "fleet" | "devices" | "users"
+K_PENDING_VIEW = "pending_view"          # set by a click elsewhere, applied on the next full run
+K_PENDING_VEHICLE = "pending_vehicle"
 
 
 def init_state(default_source: str = "live") -> None:
@@ -30,6 +32,19 @@ def init_state(default_source: str = "live") -> None:
     if K_PENDING in ss:
         ss[K_ROUTE] = ss.pop(K_PENDING)
         ss[K_VEHICLE] = None
+    if K_PENDING_VEHICLE in ss:
+        ss[K_VEHICLE] = ss.pop(K_PENDING_VEHICLE)
+    if K_PENDING_VIEW in ss:
+        ss[K_VIEW] = ss.pop(K_PENDING_VIEW)
+
+
+def open_bus_on_map(gtfs_route_id: str | None, bus_id: str) -> None:
+    """From another page: show this bus on its line in the map view (applied on the next full run)."""
+    ss = st.session_state
+    if gtfs_route_id:
+        ss[K_PENDING] = gtfs_route_id
+    ss[K_PENDING_VEHICLE] = bus_id
+    ss[K_PENDING_VIEW] = "map"
 
 
 def selected_route_id() -> str | None:
