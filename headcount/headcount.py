@@ -52,10 +52,66 @@ def load_image_for_counter(path: str) -> bytes:
     with open(path, "rb") as f:
         return f.read()
 
+#--- server
+
+import threading
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
+
+HOST = "127.0.0.1"
+PORT = 8000
+
+_lock = threading.Lock()
+
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _count_locked(data: bytes) -> int:
+    with _lock:
+        return count_people(data)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/count")
+async def count(request: Request):
+    if request.headers.get("content-type", "").startswith("multipart/form-data"):
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None:
+            raise HTTPException(400, "Missing 'file' field")
+        data = await upload.read()
+    else:
+        data = await request.body()
+
+    if not data:
+        raise HTTPException(400, "Empty request body")
+
+    try:
+        n = await run_in_threadpool(_count_locked, data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"count": n}
+
 
 if __name__ == "__main__":
     import sys
 
+    import uvicorn
+
     warmup()
     if len(sys.argv) > 1:
         print(count_people(load_image_for_counter(sys.argv[1])))
+    else:
+        uvicorn.run(app, host=HOST, port=PORT)
