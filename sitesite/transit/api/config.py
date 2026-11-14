@@ -10,7 +10,7 @@ class ApiConfig:
     timeout_s: float = 5.0
     get_retries: int = 2            
     verify_tls: bool = True
-    time_format: str = "unix"       
+    time_format: str = "iso"      
 
     @classmethod
     def from_env(cls) -> "ApiConfig":

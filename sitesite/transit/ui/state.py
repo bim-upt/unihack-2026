@@ -1,21 +1,27 @@
+"""All session-state keys and transitions live here."""
 from __future__ import annotations
 
 import streamlit as st
 
 from ..mapview.layers import parse_vehicle_tooltip
+from ..providers.live import HeadingTracker
 
 K_ROUTE = "route_id"
 K_VEHICLE = "vehicle_id"
 K_LAST_TIP = "last_vehicle_tip"
 K_LAST_DRAWING = "last_drawing_rid"
 K_BLOCK = "block_rid"           
-K_PENDING = "pending_route"    
+K_PENDING = "pending_route"     
+K_SOURCE = "vehicle_source"     
+K_BUS_TABLE = "bus_table"       
+K_BUS_TABLE_IDS = "bus_table_ids"
+K_TRACKER = "heading_tracker"
 
 
-def init_state() -> None:
+def init_state(default_source: str = "live") -> None:
     ss = st.session_state
-    for k, v in ((K_ROUTE, ""), (K_VEHICLE, None), (K_LAST_TIP, None),
-                 (K_LAST_DRAWING, None), (K_BLOCK, None)):
+    for k, v in ((K_ROUTE, ""), (K_VEHICLE, None), (K_LAST_TIP, None), (K_LAST_DRAWING, None),
+                 (K_BLOCK, None), (K_SOURCE, default_source), (K_BUS_TABLE_IDS, [])):
         ss.setdefault(k, v)
     if K_PENDING in ss:
         ss[K_ROUTE] = ss.pop(K_PENDING)
@@ -30,6 +36,15 @@ def selected_vehicle_id() -> str | None:
     return st.session_state[K_VEHICLE]
 
 
+def vehicle_source() -> str:
+    return st.session_state[K_SOURCE]
+
+
+def heading_tracker() -> HeadingTracker:
+    return st.session_state.setdefault(K_TRACKER, HeadingTracker())
+
+
+# ---------------------------------------------------------------- callbacks
 def show_all_routes() -> None:
     ss = st.session_state
     ss[K_ROUTE] = ""
@@ -44,6 +59,23 @@ def on_route_change() -> None:
         ss[K_BLOCK] = ss.get(K_LAST_DRAWING)
 
 
+def on_source_change() -> None:
+    ss = st.session_state
+    ss[K_VEHICLE] = None
+    ss[K_LAST_TIP] = None
+
+
+def on_bus_table_select() -> None:
+    """Runs before the rerun, so the map already highlights the picked bus."""
+    ss = st.session_state
+    sel = ss.get(K_BUS_TABLE) or {}
+    rows = (sel.get("selection") or {}).get("rows") or []
+    ids = ss.get(K_BUS_TABLE_IDS) or []
+    if rows and 0 <= rows[0] < len(ids):
+        ss[K_VEHICLE] = ids[rows[0]]
+
+
+# ---------------------------------------------------------------- map clicks
 def handle_map_result(result: dict | None, selected_route: str | None, vehicle_ids: set[str]) -> None:
     if not result:
         return

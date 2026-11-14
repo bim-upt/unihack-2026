@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 MODE_NAMES = {"0": "Tram", "3": "Bus", "11": "Trolleybus"}
 Bounds = tuple[tuple[float, float], tuple[float, float]]
+VEHICLE_SOURCES = ("live", "schedule")
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -20,6 +22,7 @@ class Settings:
     area_bounds: Bounds | None = None
     area_pad_km: float = 2.0
     max_zoom: int = 17
+    # single tile LOD used at every zoom (scaled); None = normal per-zoom tiles
     tile_native_zoom: int | None = 14
     simplify_m: float = 2.0
 
@@ -28,14 +31,16 @@ class Settings:
     line_weight: int = 4
     line_weight_selected: int = 7
 
-    # need gtfs  url, none = static
-    gtfs_rt_url: str | None = None
-    gtfs_rt_ttl_s: float = 10.0
-    gtfs_rt_timeout_s: float = 5.0
+    # vehicles
+    vehicle_source: str = "live"                    
+    route_map_file: Path = Path("route_map.csv")                       
+    history_limit: int = 50                         
 
     @classmethod
     def from_env(cls) -> "Settings":
+        source = os.getenv("TRANSIT_VEHICLE_SOURCE", "live")
         return cls(
             gtfs_dir=Path(os.getenv("TRANSIT_GTFS_DIR", "gtfs")),
-            gtfs_rt_url=os.getenv("TRANSIT_GTFS_RT_URL") or None,
+            route_map_file=Path(os.getenv("TRANSIT_ROUTE_MAP", "route_map.csv")),
+            vehicle_source=source if source in VEHICLE_SOURCES else "live",
         )

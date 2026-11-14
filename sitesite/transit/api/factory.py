@@ -1,11 +1,12 @@
-"""Environment variables:
+"""Builds the ApiClient from environment variables (.env is loaded by transit/__init__.py).
 
 TRANSIT_API_URL           base URL (default http://localhost:3000/api/v1)
-TRANSIT_API_TIME_FORMAT   "unix" (default) or "iso" for from/to
-TRANSIT_API_TOKEN         sent as Authorization: Bearer <token> on every endpoint
-TRANSIT_API_KEY_HEADER    with TRANSIT_API_KEY: a header-based key instead, e.g. X-Api-Key
+DISPLAY_TOKEN             display token, sent as Authorization: Bearer <token> on every call
+TRANSIT_API_TOKEN         same, alternative name (takes priority)
+TRANSIT_API_KEY_HEADER    with TRANSIT_API_KEY: a header-based key instead
 TRANSIT_API_KEY
-TRANSIT_API_ENDPOINTS     JSON: {"<endpoint name>": "/new/path" | null}, e.g. {"pass_product": "/passes/{product_id}"}
+TRANSIT_API_TIME_FORMAT   "iso" (default) or "unix" for from/to
+TRANSIT_API_ENDPOINTS     JSON: {"<endpoint name>": "/new/path" | null}
 """
 from __future__ import annotations
 
@@ -19,9 +20,9 @@ from .endpoints import Endpoints
 
 
 def default_auth_from_env() -> Auth:
-    token = os.getenv("TRANSIT_API_TOKEN")
+    token = os.getenv("TRANSIT_API_TOKEN") or os.getenv("DISPLAY_TOKEN")
     if token:
-        return BearerAuth(token)
+        return BearerAuth(token.strip())
     key_header, key = os.getenv("TRANSIT_API_KEY_HEADER"), os.getenv("TRANSIT_API_KEY")
     if key_header and key:
         return HeaderAuth(key_header, key)

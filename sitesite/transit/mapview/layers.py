@@ -68,9 +68,17 @@ def add_stops(fg, feed: Feed, route: Route, radius: int) -> None:
         ).add_to(fg)
 
 
+def add_trail(fg, coords: list[list[float]], color: str) -> None:
+    """Recent track of the selected bus, oldest to newest."""
+    if len(coords) >= 2:
+        folium.PolyLine(coords, color=color, weight=4, opacity=0.85, dash_array="6 8").add_to(fg)
+
+
 def add_vehicles(fg, route: Route, vehicles: list[Vehicle], selected_id: str | None) -> None:
     path_color, casing = contrast_path_colors(route.color)
     for v in vehicles:
+        if len(v.path) < 2:
+            continue
         cls = f"{PATH_CLASS} {PATH_ID_PREFIX}{v.css_id}" + (" sel" if v.vehicle_id == selected_id else "")
         folium.PolyLine(v.path, color=casing, weight=13, opacity=1, class_name=cls).add_to(fg)
         folium.PolyLine(v.path, color=path_color, weight=8, opacity=1, class_name=cls).add_to(fg)
@@ -96,12 +104,13 @@ def hover_stops(feed: Feed) -> dict[str, list[list[float]]]:
 
 
 def _tile_options(settings: Settings, box: list) -> dict:
+    """Leaflet option names in camelCase so they apply regardless of folium version."""
     opts = {
         "noWrap": True,
-        "bounds": box,                 
-        "updateWhenIdle": True,        
-        "updateWhenZooming": False,    
-        "keepBuffer": 4,               
+        "bounds": box,
+        "updateWhenIdle": True,
+        "updateWhenZooming": False,
+        "keepBuffer": 4,
     }
     if settings.tile_native_zoom is not None:
         opts["minNativeZoom"] = settings.tile_native_zoom
@@ -116,7 +125,7 @@ def build_base_map(settings: Settings, area: Bounds, stops_payload: dict) -> fol
         zoom_start=12,
         tiles=None,
         max_bounds=True, min_lat=s, max_lat=n, min_lon=w, max_lon=e,
-        max_bounds_viscosity=1.0,    
+        max_bounds_viscosity=1.0,
     )
     folium.TileLayer(
         settings.tiles,

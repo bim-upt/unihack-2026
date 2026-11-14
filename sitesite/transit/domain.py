@@ -1,3 +1,4 @@
+"""Core data types shared by every layer."""
 from __future__ import annotations
 
 import re
@@ -41,9 +42,9 @@ class Trip:
     service_id: str
     shape_id: str | None
     headsign: str
-    times: np.ndarray           
+    times: np.ndarray            # seconds after service-day start, one per stop
     stop_ids: tuple[str, ...]
-    coords: np.ndarray 
+    coords: np.ndarray           # (n, 2) lat, lon per stop
 
     @property
     def start(self) -> float:
@@ -57,17 +58,17 @@ class Trip:
 @dataclass(frozen=True)
 class Vehicle:
     vehicle_id: str              
-    route_id: str
+    route_id: str                
     trip_id: str | None
     lat: float
     lon: float
-    heading: float
-    path: list[list[float]]     
+    heading: float | None        
+    path: list[list[float]]      
     headsign: str
     prev_stop: str
     next_stop: str
     speed_kmh: float | None
-    source: str                 
+    source: str                
     label: str | None = None
 
     @property
