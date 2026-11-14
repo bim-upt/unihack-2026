@@ -87,7 +87,8 @@ def _money(tz: ZoneInfo, choice: str, custom) -> None:
     data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     now = datetime.now(timezone.utc)
     start, end = period_bounds(choice, custom, tz, now)
-    records, err = data.charges(_iso(start), _iso(end))
+    # the server filters on startedAt with both ends included: `to` is the last second of the period
+    records, err = data.charges(_iso(start), _iso(end - timedelta(seconds=1)) if end else None)
     if err:
         st.error(f"Charges unavailable: {err}")
         return

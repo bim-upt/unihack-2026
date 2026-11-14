@@ -75,7 +75,13 @@ def live_vehicles(positions: list[Position], route: Route, feed: Feed, tracker: 
     return out
 
 
-def trail_coords(history: list[Telemetry]) -> list[list[float]]:
+def trail_coords(history: list[Telemetry], seconds: float | None = None) -> list[list[float]]:
+    """The bus's recent track, oldest to newest. With `seconds`: only the positions received in that long
+    before the newest one, so the trail keeps one length and its old end drops off as the bus moves."""
     pts = [t for t in history if t.latlon]
-    pts.sort(key=lambda t: (t.ts or 0, t.uptime_ms or 0))
+    if seconds is not None:
+        newest = max((t.received_at for t in pts if t.received_at), default=None)
+        if newest is not None:
+            pts = [t for t in pts if t.received_at and (newest - t.received_at).total_seconds() <= seconds]
+    pts.sort(key=lambda t: (t.received_at.timestamp() if t.received_at else 0, t.ts or 0, t.uptime_ms or 0))
     return [[t.lat, t.lon] for t in pts]

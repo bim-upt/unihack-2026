@@ -15,7 +15,8 @@ from .info_panel import fmt_age, kv_table
 K_SEARCH, K_TIER, K_RIDING = "user_search", "user_tier", "user_riding_only"
 K_SELECTED_USER, K_LAST_USER_PICK = "selected_user", "user_last_pick"
 K_SELECTED_RIDE, K_LAST_RIDE_PICK = "selected_ride", "ride_last_pick"
-K_USER_TAB = "user_tab_choice"   # name of the tab open in the user panel ("Rides", "Sightings", ...)
+K_USER_TAB = "user_tab_choice"
+K_LOADED = "users_loaded"   # how many users are loaded (grows by a page on "Show more")   # name of the tab open in the user panel ("Rides", "Sightings", ...)
 TIERS = ("all", "account", "anonymous")
 SETTING_LABELS = {
     "autoCharge": "Setting: pay automatically",
@@ -99,32 +100,40 @@ def _fragments(list_every_s: float | None, user_every_s: float | None):
 
 def _user_list(tz: ZoneInfo) -> None:
     data.require_server()   # server gone: the whole app shows the 'connection lost' banner
-    users, err = data.users()
-    if err:
-        st.error(f"Users unavailable: {err}")
-        return
-    users = users or []
-    riding = [u for u in users if u.get("open_ride_status")]
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Users", len(users))
-    c2.metric("Accounts", sum(u.get("tier") == "account" for u in users))
-    c3.metric("Riding now", len(riding))
-    c4.metric("Inspectors", sum("inspector" in (u.get("roles") or []) for u in users))
-
+    ss = st.session_state
     f1, f2, f3 = st.columns([3, 2, 2], vertical_alignment="bottom")
     query = f1.text_input("Search", key=K_SEARCH, placeholder="name, email or id").strip().lower()
     tier = f2.selectbox("Tier", TIERS, key=K_TIER)
     only_riding = f3.toggle("Riding now", key=K_RIDING)
+    if ss.get("users_tier_loaded") != tier:   # another tier: start again from the first page
+        ss["users_tier_loaded"], ss[K_LOADED] = tier, data.USERS_PAGE
+    loaded = ss.setdefault(K_LOADED, data.USERS_PAGE)
+
+    # paged on the server (newest first): only `loaded` users are fetched; "Show more" asks for the next page
+    users, err = data.users(loaded, None if tier == "all" else tier)
+    if err:
+        st.error(f"Users unavailable: {err}")
+        return
+    users = users or []
+    more = len(users) >= loaded
+    riding = [u for u in users if u.get("open_ride_status")]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Users loaded" if more else "Users", f"{len(users)}{'+' if more else ''}")
+    c2.metric("Accounts", sum(u.get("tier") == "account" for u in users))
+    c3.metric("Riding now", len(riding))
+    c4.metric("Inspectors", sum("inspector" in (u.get("roles") or []) for u in users))
 
     shown = [u for u in users
-             if (tier == "all" or u.get("tier") == tier)
-             and (not only_riding or u.get("open_ride_status"))
+             if (not only_riding or u.get("open_ride_status"))
              and (not query or any(query in str(u.get(k) or "").lower() for k in ("name", "email", "id")))]
+    if more:
+        st.button(f"Show {data.USERS_PAGE} more", key="users_more", on_click=_load_more)
+        if query or only_riding:
+            st.caption("Search and \"Riding now\" look at the users loaded so far: show more to look further.")
     if not shown:
         st.caption("No user matches.")
         return
 
-    ss = st.session_state
     ids = [u["id"] for u in shown]
     event = st.dataframe(
         pd.DataFrame([{
@@ -146,7 +155,7 @@ def _user_list(tz: ZoneInfo) -> None:
         hide_index=True,
         width="stretch",
     )
-    st.caption(f"{len(shown)} of {len(users)} users. Click one to see it.")
+    st.caption(f"{len(shown)} of {len(users)}{'+' if more else ''} users. Click one to see it.")
     row = picked_row(event.selection if event else None)
     picked = ids[row] if row is not None and 0 <= row < len(ids) else None
     if picked is not None and picked != ss.get(K_LAST_USER_PICK):
@@ -154,6 +163,10 @@ def _user_list(tz: ZoneInfo) -> None:
         ss[K_SELECTED_USER] = picked
         ss[K_SELECTED_RIDE] = ss[K_LAST_RIDE_PICK] = None
         st.rerun()   # the user panel is another part: redraw both at once
+
+
+def _load_more() -> None:
+    st.session_state[K_LOADED] = st.session_state.get(K_LOADED, data.USERS_PAGE) + data.USERS_PAGE
 
 
 def _user_panel(tz: ZoneInfo) -> None:

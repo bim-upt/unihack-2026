@@ -73,7 +73,7 @@ def _fleet(settings: Settings, area: Bounds, line_of: Callable[[int | None], str
     data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     silent_s, offline_s = settings.fleet_silent_s, settings.fleet_offline_s
     try:
-        devices, route_of, notes = fleet_statuses()
+        devices, route_of, notes = fleet_statuses(with_cameras=True)
     except RuntimeError as exc:
         st.error(str(exc))
         return
@@ -154,7 +154,8 @@ def _attention(devices, route_of: dict, line_of: Callable[[int | None], str], no
     if quiet:
         quiet.sort(key=lambda r: -r["_age"])
         _device_table(quiet, "fleet_quiet")
-        st.caption(f"{len(quiet)} device(s) silent for more than {silent_s:.0f} s. Click one to open it.")
+        st.caption(f"{len(quiet)} device(s) silent for more than {silent_s:.0f} s. Click one to open it. "
+                   "Cameras: from their newest photo's time (no images are downloaded here).")
     else:
         st.success(f"Every device that has reported was heard in the last {silent_s:.0f} s.")
     if never:

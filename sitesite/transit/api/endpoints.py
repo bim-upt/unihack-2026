@@ -37,6 +37,8 @@ class Endpoints:
     capture_interval: Endpoint | None = Endpoint("GET", "/buses/{bus_id}/capture-interval")
     # passengers
     occupancy: Endpoint | None = Endpoint("GET", "/buses/{bus_id}/occupancy")
+    # people the camera counts vs app users who paid (an estimate; counted about every 5 s)
+    headcount: Endpoint | None = Endpoint("GET", "/buses/{bus_id}/headcount")
     # reports and passes
     reports: Endpoint | None = Endpoint("GET", "/reports", params=(("line", "line"), ("kind", "kind")))
     pass_catalog: Endpoint | None = Endpoint("GET", "/passes/catalog")   # every pass product

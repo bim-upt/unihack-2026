@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 log = logging.getLogger("transit.api")
 
@@ -29,6 +30,17 @@ class AuthNotConfigured(Exception):
     """The endpoint's auth key has no provider in ApiClient.auth."""
 
 CONNECTION_LOST = "Connection to the server lost. Retrying…"
+_last_transport_failure = 0.0   # time.monotonic() of the last call that got no answer
+
+
+def note_transport_failure() -> None:
+    global _last_transport_failure
+    _last_transport_failure = time.monotonic()
+
+
+def transport_failed_within(seconds: float) -> bool:
+    """Did a call get no answer in the last `seconds`? Then it's worth asking /health if the server is up."""
+    return time.monotonic() - _last_transport_failure < seconds
 
 
 def user_message(exc: BaseException) -> str:
@@ -36,6 +48,7 @@ def user_message(exc: BaseException) -> str:
     log (the terminal Streamlit runs in)."""
     log.warning("API call failed: %s: %s", type(exc).__name__, exc)
     if isinstance(exc, TransportError):
+        note_transport_failure()
         return CONNECTION_LOST
     if isinstance(exc, ApiError):
         if exc.status == 401:

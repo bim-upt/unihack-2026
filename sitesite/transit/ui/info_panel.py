@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -132,7 +132,7 @@ def eta_text(distance_m: float, p, history=None) -> str | None:
 
 
 def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_fetched, tz: ZoneInfo, *,
-                    photo_meta=None, history=None, upcoming=None) -> None:
+                    photo_meta=None, history=None, upcoming=None, headcount=None) -> None:
     """Overview tab of the selected bus."""
     info, err = info_fetched
     if err or info is None:
@@ -146,7 +146,18 @@ def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_f
     else:
         age = p.age_s()
         facts.append(f"**{p.speed_kmh:.0f} km/h**" if p.speed_kmh is not None else "speed —")
-    facts.append(f"**{'—' if info.occupancy is None else info.occupancy}** passengers")
+    camera_note = None
+    if headcount is not None and headcount.people_counted is not None:
+        # the camera's count of people, against the passengers of valid tickets (an estimate)
+        facts.append(f"**{headcount.people_counted}** on board (camera)")
+        facts.append(f"**{'—' if headcount.paid_passengers is None else headcount.paid_passengers}** paid")
+        if headcount.without_ticket:
+            facts.append(f"**~{headcount.without_ticket}** without ticket")
+    else:
+        facts.append(f"**{'—' if info.occupancy is None else info.occupancy}** paid passengers")
+        if headcount is not None:
+            camera_note = (f"camera count {fmt_age((datetime.now(timezone.utc) - headcount.counted_at).total_seconds())}"
+                           " (too old to show)" if headcount.counted_at else "no camera count yet")
     if upcoming is not None:   # next stop ahead, distance along the line
         eta = eta_text(upcoming.distance_m, p, history)
         facts.append(f"next stop **{upcoming.stop.name}** ({upcoming.distance_m:.0f} m{', ' + eta if eta else ''})")
@@ -161,6 +172,7 @@ def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_f
             "simulated" if p.sim else "real GPS",
             "GPS fix" if p.fix_ok is not False else "no GPS fix",
             f"updated {fmt_age(age)}" if age is not None else "device clock not set",
+            *([camera_note] if camera_note else []),
         ]))
 
     frame, ferr = frame_fetched

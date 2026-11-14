@@ -19,7 +19,7 @@ from streamlit_folium import st_folium
 from ..config import Bounds, Settings
 from ..gtfs import Feed
 from ..geometry import view_for
-from ..mapview.layers import add_hit_lines, add_route_lines, build_base_map
+from ..mapview.layers import add_background_lines, add_hit_lines, add_route_lines, build_base_map
 from . import data
 
 WINDOWS = {"1 h": 60, "6 h": 360, "24 h": 1440, "All kept": None}
@@ -166,9 +166,11 @@ def _hot_spots(settings: Settings, area: Bounds, df: pd.DataFrame, route_of: dic
     base = build_base_map(settings, area, {}, highlight_px=0)
     lines = folium.FeatureGroup(name="lines")
     ids_drawn = [one_line] if one_line else feed.drawable_route_ids()
-    add_route_lines(lines, feed, ids_drawn, settings.line_weight_selected if one_line else settings.line_weight,
-                    opacity=0.9 if one_line else LINES_OPACITY)
-    add_hit_lines(lines, feed, ids_drawn, settings.hit_px)
+    if one_line:
+        add_route_lines(lines, feed, ids_drawn, settings.line_weight_selected, opacity=0.9)
+        add_hit_lines(lines, feed, ids_drawn, settings.hit_px)
+    else:   # the whole network: one pale layer that is also the hover target
+        add_background_lines(lines, feed, ids_drawn, settings.line_weight, LINES_OPACITY, settings.hit_px)
     lines.add_to(base)
     box = feed.route_bounds(one_line) if one_line else None
     if box:

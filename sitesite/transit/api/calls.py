@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,7 +11,7 @@ import requests
 from .client import ApiClient
 from .errors import ApiError, AuthNotConfigured, TransportError, user_message
 from .models import (
-    Bus, BusInfo, CaptureInterval, Device, DeviceStatus, Frame, FrameImage, Occupancy, PassProduct, Position, Report, Telemetry,
+    Bus, BusInfo, CaptureInterval, Device, DeviceStatus, Frame, Headcount, FrameImage, Occupancy, PassProduct, Position, Report, Telemetry,
 )
 
 T = TypeVar("T")
@@ -91,6 +92,11 @@ def get_occupancy(api: ApiClient, bus_id: int) -> Occupancy | None:
     return _get(api, "occupancy", lambda r: Occupancy.from_json(r.json()), path={"bus_id": int(bus_id)})
 
 
+def get_headcount(api: ApiClient, bus_id: int) -> Headcount | None:
+    """None when the server doesn't have this call (an older server) or the bus is unknown."""
+    return _get(api, "headcount", lambda r: Headcount.from_json(r.json()), path={"bus_id": int(bus_id)})
+
+
 # ---------------------------------------------------------------- reports and passes
 def list_reports(api: ApiClient, line: str | None = None, kind: str | None = None) -> list[Report] | None:
     reports = _list(api, "reports", Report, query={"line": line, "kind": kind})
@@ -144,9 +150,12 @@ def get_record(api: ApiClient, name: str, **path) -> dict | None:
 
 
 # ---------------------------------------------------------------- bulk helpers
+_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="transit-api")   # one pool for every page
+
+
 def fetch_many(fn: Callable[[K], T], keys: Iterable[K], workers: int = 16) -> dict[K, tuple[T | None, str | None]]:
-    """Runs `fn(key)` for every key in parallel. The API has no bulk calls for these, so the per-bus
-    calls run side by side instead of one after another."""
+    """Runs `fn(key)` for every key in parallel, on one shared pool of 16 threads. The API has no bulk calls
+    for these, so the per-bus calls run side by side instead of one after another."""
     keys = list(dict.fromkeys(keys))
 
     def one(k: K) -> tuple[T | None, str | None]:
@@ -155,10 +164,11 @@ def fetch_many(fn: Callable[[K], T], keys: Iterable[K], workers: int = 16) -> di
         except (ApiError, TransportError, AuthNotConfigured, ValueError, KeyError, TypeError) as exc:
             return None, user_message(exc)
 
-    if len(keys) <= 1:
+    # one key, or already on a pool thread (a fetch_many inside a fetch_many): run here, so the pool can't
+    # fill up with tasks that wait for each other
+    if len(keys) <= 1 or threading.current_thread().name.startswith("transit-api"):
         return {k: one(k) for k in keys}
-    with ThreadPoolExecutor(max_workers=min(workers, len(keys))) as pool:
-        return dict(zip(keys, pool.map(one, keys)))
+    return dict(zip(keys, _POOL.map(one, keys)))
 
 
 def list_latest_telemetry(api: ApiClient) -> list[Telemetry] | None:
@@ -243,6 +253,7 @@ class BusSnapshot:
     devices: list[DeviceStatus]
     errors: dict[str, str]
     photo_meta: Frame | None = None   # metadata of the newest photo (capture time, sequence)
+    headcount: Headcount | None = None   # camera count vs paid (None: no such call on the server)
 
 
 def _parts(parts: dict[str, Callable[[], object]]) -> tuple[dict[str, object], dict[str, str]]:
@@ -300,6 +311,7 @@ def assemble_bus_snapshot(bus_id: int, live: tuple[dict, dict], setup: tuple[dic
                                         interval_ms),
         errors=errors,
         photo_meta=frames[0] if frames else None,
+        headcount=v.get("headcount"),
     )
 
 

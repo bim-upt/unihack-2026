@@ -34,6 +34,7 @@ class Settings:
     # vehicles
     vehicle_source: str = "live"                    
     history_limit: int = 50                         
+    trail_s: float = 60.0           # the selected bus's trail: its positions of the last this many seconds
     # positions older than this are hidden from the map; None = show the last position however old
     # (test data comes in bursts, so hiding it would leave the map empty)
     live_max_age_s: float | None = None
@@ -68,6 +69,7 @@ class Settings:
             fleet_silent_s=float(os.getenv("TRANSIT_FLEET_SILENT_S") or 60),
             fleet_offline_s=float(os.getenv("TRANSIT_FLEET_OFFLINE_S") or 600),
             money_refresh_s=float(os.getenv("TRANSIT_MONEY_REFRESH_S") or 10),
+            trail_s=float(os.getenv("TRANSIT_TRAIL_S") or 60),
             health_refresh_s=float(os.getenv("TRANSIT_HEALTH_REFRESH_S") or 30),
             sightings_refresh_s=float(os.getenv("TRANSIT_SIGHTINGS_REFRESH_S") or 30),
             inspector_refresh_s=float(os.getenv("TRANSIT_INSPECTOR_REFRESH_S") or 10),

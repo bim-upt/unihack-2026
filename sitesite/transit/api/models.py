@@ -238,6 +238,35 @@ class Occupancy:
         )
 
 
+@dataclass(frozen=True)
+class Headcount:
+    """GET /buses/{bus_id}/headcount: the camera's count of people against the app users who paid. An estimate
+    (the driver counts, someone can be missed or counted twice)."""
+    bus_id: int
+    people_counted: int | None        # None: nothing counted yet, or the count is older than 60 s
+    counted_at: datetime | None       # when the photo was counted (also given when too old to show)
+    frame_id: str | None
+    devices_heard: int | None         # app users heard on the bus now
+    devices_paid: int | None          # ... of them with a valid ticket
+    devices_unpaid: int | None
+    paid_passengers: int | None       # people the valid tickets cover
+    without_ticket: int | None        # max(0, people_counted - paid_passengers); None with no count
+
+    @classmethod
+    def from_json(cls, j: dict) -> "Headcount":
+        return cls(
+            bus_id=int(_pick(j, "bus_id", "busId")),
+            people_counted=_i(_pick(j, "people_counted")),
+            counted_at=_dt(_pick(j, "counted_at")),
+            frame_id=_pick(j, "frame_id"),
+            devices_heard=_i(_pick(j, "devices_heard")),
+            devices_paid=_i(_pick(j, "devices_paid")),
+            devices_unpaid=_i(_pick(j, "devices_unpaid")),
+            paid_passengers=_i(_pick(j, "paid_passengers")),
+            without_ticket=_i(_pick(j, "without_ticket")),
+        )
+
+
 # ----------------------------- reports and passes
 @dataclass(frozen=True)
 class Report:

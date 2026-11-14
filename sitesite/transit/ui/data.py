@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from typing import Callable, TypeVar
 
@@ -9,13 +10,15 @@ import numpy as np
 import streamlit as st
 
 from ..api import (
-    ApiClient, assemble_bus_snapshot, build_client, fetch_many, get_bus_live, get_bus_photo, get_bus_setup,
+    ApiClient, assemble_bus_snapshot, build_client, fetch_many, get_bus_photo, get_bus_setup, get_occupancy,
     get_capture_interval, get_route_positions, get_telemetry_history, list_bus_devices, list_buses, list_frames,
     list_all_records, list_latest_telemetry, list_records, list_reports, get_record, server_up,
+    get_headcount, Occupancy,
 )
-from ..api.errors import CONNECTION_LOST, user_message
+from ..api.errors import CONNECTION_LOST, transport_failed_within, user_message
 from ..gtfs import Feed
 from ..linking import RouteLink, match_routes
+from .history import HistoryStore
 
 T = TypeVar("T")
 LINK_SAMPLES_PER_BUS = 30
@@ -42,14 +45,19 @@ def _server_up() -> bool:
     return server_up(api_client())   # at most one /health a second, shared by every page and viewer
 
 
+RECHECK_AFTER_FAILURE_S = 10   # /health is only asked while a real call failed this recently
+
+
 def server_up_now() -> bool:
-    return _server_up()
+    """Normally True without any call: /health is only asked when a real call got no answer in the last
+    RECHECK_AFTER_FAILURE_S (then once a second at most, shared by everyone)."""
+    return _server_up() if transport_failed_within(RECHECK_AFTER_FAILURE_S) else True
 
 
 def require_server() -> None:
     """At the top of every self-updating part: if the server stopped answering, rerun the whole app, which
     then shows the 'connection lost' banner instead of making calls that would all fail."""
-    if not _server_up():
+    if not server_up_now():
         st.rerun(scope="app")
 
 
@@ -111,9 +119,41 @@ def buses():
     return _safe(lambda: list_buses(api_client()))
 
 
-@st.cache_resource(ttl=0.5, show_spinner=False)
-def _bus_live(bus_id: int, history_limit: int):
-    return get_bus_live(api_client(), bus_id, history_limit=history_limit)
+@st.cache_resource
+def _history_store() -> HistoryStore:
+    return HistoryStore()
+
+
+BUS_HISTORY_WINDOW = timedelta(minutes=30)   # what the selected bus's trail, next stop and ETA are drawn from
+
+
+def history(bus_ids, start: datetime, max_age_s: float):
+    """bus id -> (positions since `start`, newest first; error), from the shared incremental store."""
+    return _history_store().get(api_client(), tuple(bus_ids), start, max_age_s)
+
+
+@st.cache_resource(ttl=5, show_spinner=False)
+def _occupancy(bus_id: int):
+    """Passengers: changes only when a ride is confirmed or ends, so every 5 s is enough."""
+    return _safe(lambda: get_occupancy(api_client(), bus_id))
+
+
+@st.cache_resource(ttl=5, show_spinner=False)
+def _headcount(bus_id: int):
+    return _safe(lambda: get_headcount(api_client(), bus_id))
+
+
+def headcount(bus_id: int):
+    """Camera count vs paid passengers (GET /buses/{id}/headcount, the photo is counted about every 5 s).
+    A server that leaves out paid_passengers / without_ticket (an older build does): filled in here from the
+    occupancy call (the paid passengers) and the camera count."""
+    hc, err = _headcount(bus_id)
+    if hc is None or hc.paid_passengers is not None:
+        return hc, err
+    occ, oerr = _occupancy(bus_id)
+    paid = occ.passenger_count if occ else None
+    missing = None if paid is None or hc.people_counted is None else max(0, hc.people_counted - paid)
+    return replace(hc, paid_passengers=paid, without_ticket=missing), err or oerr
 
 
 @st.cache_resource(ttl=30, show_spinner=False)
@@ -128,15 +168,28 @@ def _bus_photo(bus_id: int, slot: int):
 
 
 def bus_snapshot(bus_id: int, history_limit: int, *, photo_every_s: float = 5.0):
-    """Everything about the selected bus. Position and passengers are fetched on every update; the device
-    list every 30 s; the photo at the camera's own pace: the capture interval the server tells the camera
+    """Everything about the selected bus. Position and trail come from the shared history (new rows about once
+    a second); passengers every 5 s; the device list every 30 s; the photo at the camera's own pace: the capture interval the server tells the camera
     after each photo (GET /buses/{id}/capture-interval), or `photo_every_s` when the server gives none."""
     def build():
         setup = _bus_setup(bus_id)
         interval = setup[0].get("capture_interval")
         every_s = interval.next_capture_ms / 1000 if interval and interval.next_capture_ms else photo_every_s
         slot = int(time.time() // max(every_s, 0.5))
-        return assemble_bus_snapshot(bus_id, _bus_live(bus_id, history_limit), setup, _bus_photo(bus_id, slot))
+        # position and trail from the shared history (only new rows are fetched, about once a second); the
+        # position is the newest one with GPS, so no separate /position call is needed
+        rows, herr = history([bus_id], datetime.now(timezone.utc) - BUS_HISTORY_WINDOW, max_age_s=0.8)[bus_id]
+        position = next((t for t in rows if t.latlon), rows[0] if rows else None)
+        # passengers from the headcount call (it also gives the camera's count); an older server without it:
+        # the occupancy call instead
+        hc, oerr = headcount(bus_id)
+        if hc is not None and hc.paid_passengers is not None:
+            occupancy = Occupancy(bus_id, hc.paid_passengers)
+        else:
+            occupancy, oerr = _occupancy(bus_id)
+        live = ({"position": position, "occupancy": occupancy, "history": rows[:history_limit], "headcount": hc},
+                {k: e for k, e in (("history", herr), ("position", herr), ("occupancy", oerr)) if e})
+        return assemble_bus_snapshot(bus_id, live, setup, _bus_photo(bus_id, slot))
     return _safe(build)
 
 
@@ -154,9 +207,10 @@ def latest_telemetry():
     return _safe(lambda: list_latest_telemetry(api_client()))
 
 
-@st.cache_resource(ttl=5, show_spinner=False)
+@st.cache_resource(ttl=10, show_spinner=False)
 def latest_frames(bus_ids: tuple[int, ...]):
-    """bus id -> (newest frame list, error), one call per bus with a camera (in parallel)."""
+    """bus id -> (its newest photo's metadata (time, sequence; no image), error), one call per bus, in parallel.
+    Used by the Fleet page to tell cameras that went quiet."""
     return fetch_many(lambda bid: list_frames(api_client(), bid, limit=1), bus_ids)
 
 
@@ -170,9 +224,19 @@ USER_ACTIVITY = ("rides", "charges", "trips", "passes", "sightings")
 LIST_LIMIT = 1000   # the most a list call gives
 
 
-@st.cache_resource(ttl=5, show_spinner=False)
-def users():
-    return _safe(lambda: list_records(api_client(), "users", limit=LIST_LIMIT))
+USERS_PAGE = 50   # the Users page loads this many, and this many more on "Show more"
+
+
+@st.cache_resource(ttl=5, max_entries=20, show_spinner=False)
+def users(limit: int = USERS_PAGE, tier: str | None = None):
+    """The newest `limit` users (of a tier), one call: the page asks for more as you click "Show more"."""
+    return _safe(lambda: list_records(api_client(), "users", limit=min(limit, LIST_LIMIT), tier=tier))
+
+
+@st.cache_resource(ttl=30, show_spinner=False)
+def users_by_id(user_ids: tuple[str, ...]):
+    """user id -> (user, error) for just these people, in parallel."""
+    return fetch_many(lambda uid: get_record(api_client(), "user", user_id=uid), user_ids)
 
 
 @st.cache_resource(ttl=3, show_spinner=False)
@@ -205,11 +269,11 @@ def pass_catalog():
 
 
 # ---------------------------------------------------------------- line health page
-@st.cache_resource(ttl=20, max_entries=10, show_spinner=False)
 def recent_history(bus_ids: tuple[int, ...], start_iso: str):
-    """bus id -> (positions received since `start_iso`, error); one call per bus, in parallel."""
-    start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))   # text as the cache key, datetime for the call
-    return fetch_many(lambda bid: get_telemetry_history(api_client(), bid, start=start, limit=1000), bus_ids)
+    """bus id -> (positions received since `start_iso`, newest first; error), from the shared store: only what's
+    new since the last update is downloaded."""
+    start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+    return history(bus_ids, start, max_age_s=20)
 
 
 @st.cache_resource(ttl=20, show_spinner=False)
@@ -237,15 +301,21 @@ def bus_sightings(bus_id: int):
     return _safe(lambda: list_records(api_client(), "sightings", bus_id=bus_id, limit=1000))
 
 
+@st.cache_resource(ttl=5, show_spinner=False)
+def charges_of(user_ids: tuple[str, ...]):
+    """user id -> (their charges, error): only the people being looked at, in parallel."""
+    return fetch_many(lambda uid: list_records(api_client(), "charges", user_id=uid, limit=LIST_LIMIT), user_ids)
+
+
 @st.cache_resource(ttl=30, show_spinner=False)
 def all_passes():
     return _safe(lambda: list_all_records(api_client(), "passes"))
 
 
 def clear() -> None:
-    for fn in (route_positions, reports, buses, _bus_live, _bus_setup, _bus_photo,
-               fleet_devices, latest_telemetry, latest_frames, capture_interval, users, user, user_activity, ride,
-               charges, pass_catalog, recent_history, all_reports, sightings_all, bus_rides, bus_sightings,
+    for fn in (route_positions, reports, buses, _occupancy, _headcount, _bus_setup, _bus_photo,
+               fleet_devices, latest_telemetry, latest_frames, capture_interval, users, users_by_id, user, user_activity, ride,
+               charges, charges_of, pass_catalog, all_reports, sightings_all, bus_rides, bus_sightings,
                all_passes):
         fn.clear()
     # the route link is left alone: it is rebuilt every 10 minutes on its own

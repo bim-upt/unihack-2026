@@ -29,24 +29,39 @@ def parse_vehicle_tooltip(tip: str | None) -> str | None:
 
 
 # ----------------------------------- routes
-def _route_feature(route: Route, coords: list, hit: bool) -> dict:
+COORD_DECIMALS = 5   # ~1 m: plenty for drawing, and a third of the bytes of full precision
+
+
+def _route_feature(route: Route, coords: list, hit: bool, hit_px: int | None = None) -> dict:
+    props = {"route_id": route.route_id, "short": route.short_name, "color": route.color,
+             "tcolor": route.text_color, "hit": hit}
+    if hit_px:
+        props["hitpx"] = hit_px   # hover.js uses this as the hover width instead of the drawn width
     return {
         "type": "Feature",
-        "properties": {"route_id": route.route_id, "short": route.short_name,
-                       "color": route.color, "tcolor": route.text_color, "hit": hit},
-        "geometry": {"type": "LineString", "coordinates": coords},
+        "properties": props,
+        "geometry": {"type": "LineString",
+                     "coordinates": [[round(x, COORD_DECIMALS), round(y, COORD_DECIMALS)] for x, y in coords]},
     }
 
 
-def _add_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int, opacity: float, hit: bool) -> None:
+def _add_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int, opacity: float, hit: bool,
+               hit_px: int | None = None, one_shape: bool = False) -> None:
+    """All the lines as ONE GeoJSON layer (one style, colours from the features) instead of a layer per shape:
+    much less to send to the browser on every update."""
+    features = []
     for rid in route_ids:
         route = feed.routes[rid]
-        for shape_id in feed.shapes_by_route.get(rid, ()):
-            folium.GeoJson(
-                _route_feature(route, feed.shapes[shape_id].lonlat, hit),
-                style_function=lambda _f, c=route.color, w=weight, o=opacity: {
-                    "color": c, "weight": w, "opacity": o},
-            ).add_to(fg)
+        shape_ids = list(feed.shapes_by_route.get(rid, ()))
+        if one_shape and shape_ids:   # both directions run on the same streets: one is enough to draw
+            shape_ids = [max(shape_ids, key=lambda sid: feed.shapes[sid].length)]
+        features += [_route_feature(route, feed.shapes[sid].lonlat, hit, hit_px) for sid in shape_ids]
+    if features:
+        folium.GeoJson(
+            {"type": "FeatureCollection", "features": features},
+            style_function=lambda f, w=weight, o=opacity: {"color": f["properties"]["color"], "weight": w,
+                                                           "opacity": o},
+        ).add_to(fg)
 
 
 def add_route_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int, opacity: float = 0.95) -> None:
@@ -56,6 +71,12 @@ def add_route_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int, opaci
 def add_hit_lines(fg, feed: Feed, route_ids: Iterable[str], hit_px: int) -> None:
     """Wide, near-invisible lines used by hover.js for hit-testing."""
     _add_lines(fg, feed, route_ids, hit_px, 0.01, hit=True)
+
+
+def add_background_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int, opacity: float, hit_px: int) -> None:
+    """Pale lines that are also the hover targets (one layer instead of a drawn one plus a hover one), one shape
+    per line: the network as a light backdrop."""
+    _add_lines(fg, feed, route_ids, weight, opacity, hit=True, hit_px=hit_px, one_shape=True)
 
 
 # ------------------------------- stops / vehicles
@@ -72,7 +93,8 @@ def add_next_stop(fg, path: list[list[float]], stop_name: str, stop_latlon: tupl
                   fill: str) -> None:
     """Solid line along the route from the selected bus to its next stop, and that stop marked."""
     if len(path) >= 2:
-        folium.PolyLine(path, color=color, weight=5, opacity=0.95, tooltip=f"To the next stop: {stop_name}").add_to(fg)
+        folium.PolyLine(path, color=color, weight=5, opacity=0.95, tooltip=f"To the next stop: {stop_name}",
+                        class_name="vlive").add_to(fg)
     folium.CircleMarker(stop_latlon, radius=9, color=color, weight=3, fill=True, fill_color=fill, fill_opacity=1,
                         tooltip=f"Next stop: {stop_name}").add_to(fg)
 
@@ -80,7 +102,7 @@ def add_next_stop(fg, path: list[list[float]], stop_name: str, stop_latlon: tupl
 def add_trail(fg, coords: list[list[float]], color: str) -> None:
     """Recent track of the selected bus, oldest to newest."""
     if len(coords) >= 2:
-        folium.PolyLine(coords, color=color, weight=4, opacity=0.85, dash_array="6 8").add_to(fg)
+        folium.PolyLine(coords, color=color, weight=4, opacity=0.85, dash_array="6 8", class_name="vlive").add_to(fg)
 
 
 def add_vehicles(fg, route: Route, vehicles: list[Vehicle], selected_id: str | None) -> None:

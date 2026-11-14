@@ -68,6 +68,9 @@ def main() -> None:
         data.render_connection_lost()   # one banner, /health every second, no other calls until it's back
         return
     link, link_err = data.route_link(gtfs_key, feed)
+    if link_err == CONNECTION_LOST:   # the first call of a page load found the server down: banner straight away
+        data.render_connection_lost()
+        return
 
     if controls.view == "inspector":
         def inspector_line(api_rid: int | None) -> str:
@@ -176,7 +179,7 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                 history_fetched = (snap.history, snap.errors.get("history")) if snap else (None, snap_err)
                 if history_fetched[0]:
                     path_color = contrast_path_colors(route.color)[0]
-                    add_trail(fg, trail_coords(history_fetched[0]), path_color)
+                    add_trail(fg, trail_coords(history_fetched[0], SETTINGS.trail_s), path_color)
                     upcoming = next_stop(feed, route.route_id, history_fetched[0])
                     if upcoming:
                         add_next_stop(fg, upcoming.path, upcoming.stop.name, (upcoming.stop.lat, upcoming.stop.lon),
@@ -190,7 +193,9 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
         add_hit_lines(static, feed, ids, SETTINGS.hit_px)
 
     area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
-    base_map = build_base_map(SETTINGS, area, get_hover_payload(gtfs_key, feed))
+    # hover stop data: with a line open only that line's stops (the map is re-sent on every live update)
+    hover = get_hover_payload(gtfs_key, feed)
+    base_map = build_base_map(SETTINGS, area, {route.route_id: hover.get(route.route_id, [])} if route else hover)
     static.add_to(base_map)
     # zoom to the selected line; with none, zoom 0 is raised to the smallest zoom that fills the frame
     route_box = feed.route_bounds(route.route_id) if route else None
@@ -250,6 +255,7 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                     t_overview, t_devices, t_history = st.tabs(["Overview", "Devices", "History"])
                     with t_overview:
                         render_live_bus(feed, route, bid, info_fetched, frame_fetched, SETTINGS.tz, upcoming=upcoming,
+                                        headcount=snap.headcount if snap else None,
                                         photo_meta=snap.photo_meta if snap else None,
                                         history=snap.history if snap else None)
                     with t_devices:

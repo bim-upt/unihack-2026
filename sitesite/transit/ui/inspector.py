@@ -20,6 +20,7 @@ from .info_panel import fmt_age
 
 OPEN_RIDE = ("pending", "awaiting_confirmation", "payment_failed", "confirmed")   # rides still going on
 PAID_CHARGE = ("in_progress", "completed")
+CARD_TICKET_VALID = timedelta(minutes=60)   # the server's rule: a card payment is a valid ticket for 60 minutes
 SEEN_WINDOWS = {"2 min": 2, "5 min": 5, "15 min": 15}
 K_BUS, K_SEEN = "insp_bus", "insp_seen"
 
@@ -30,6 +31,7 @@ VERDICTS = {
     "valid_pass": ("ok", "No ticket, valid pass for this line"),
     "pending": ("check", "Ride not confirmed yet"),
     "unverified_pass": ("check", "Pass for this line, not verified"),
+    "ticket_expired": ("fail", "Card ticket older than 60 min"),
     "payment_failed": ("fail", "Payment failed"),
     "wrong_line": ("fail", "Pass not valid on this line"),
     "expired": ("fail", "Pass expired"),
@@ -63,12 +65,27 @@ def check_pass(p: dict, line: str, today: date) -> PassCheck:
     return PassCheck(p.get("name") or "pass", valid, covers, bool(p.get("verified")), str(p.get("validUntil") or "—"))
 
 
-def verdict(ride: dict | None, charge: dict | None, passes: list[PassCheck]) -> str:
-    """What an inspector should think of this person. Pure."""
+def _when(v) -> datetime | None:
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00")) if v else None
+    except ValueError:
+        return None
+    return d if d is None or d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def verdict(ride: dict | None, charge: dict | None, passes: list[PassCheck], now: datetime | None = None) -> str:
+    """What an inspector should think of this person. Pure (pass `now` to test)."""
+    now = now or datetime.now(timezone.utc)
     if charge and charge.get("status") == "covered_by_pass":
         return "pass_ride"
+    expired_card = False
     if ride and ride.get("status") == "confirmed" and charge and charge.get("status") in PAID_CHARGE:
-        return "pass_ride" if charge.get("source_kind") == "pass" else "paid"
+        if charge.get("source_kind") == "pass":
+            return "pass_ride"
+        started = _when(charge.get("startedAt"))
+        if started is None or now - started <= CARD_TICKET_VALID:
+            return "paid"
+        expired_card = True   # paid by card, but more than 60 minutes ago: no longer a valid ticket
     good = [p for p in passes if p.valid_now and p.covers_line]
     if any(p.verified for p in good):
         return "valid_pass"
@@ -76,6 +93,8 @@ def verdict(ride: dict | None, charge: dict | None, passes: list[PassCheck]) -> 
         return "unverified_pass"
     if ride and ride.get("status") in ("pending", "awaiting_confirmation"):
         return "pending"
+    if expired_card:
+        return "ticket_expired"
     if ride and ride.get("status") == "payment_failed":
         return "payment_failed"
     if any(p.valid_now for p in passes):
@@ -122,9 +141,7 @@ def _people(settings: Settings, bus_id: int, line: str, seen_min: int) -> None:
     rides, rerr = data.bus_rides(bus_id)
     sightings, serr = data.bus_sightings(bus_id)
     passes, perr = data.all_passes()
-    charges, cerr = data.charges(None, None)
-    users, uerr = data.users()
-    for e in dict.fromkeys(x for x in (rerr, serr, perr, cerr, uerr) if x):
+    for e in dict.fromkeys(x for x in (rerr, serr, perr) if x):
         st.caption(e)
 
     now = datetime.now(timezone.utc)
@@ -137,11 +154,16 @@ def _people(settings: Settings, bus_id: int, line: str, seen_min: int) -> None:
         when = pd.to_datetime(s.get("received_at"), utc=True, errors="coerce")
         if s.get("accepted") and s.get("user_id") and pd.notna(when) and now - when <= timedelta(minutes=seen_min):
             last_seen[s["user_id"]] = max(when, last_seen.get(s["user_id"], when))
-    charge_by_id = {c.get("id"): c for c in charges or []}
+    # only the charges of the people with an open ride here (not every charge ever made)
+    by_user = data.charges_of(tuple(sorted(open_rides))) if open_rides else {}
+    charge_by_id = {c.get("id"): c for rows, _e in by_user.values() for c in rows or []}
+    for e in dict.fromkeys(e for _r, e in by_user.values() if e):
+        st.caption(e)
     passes_by_user: dict[str, list[dict]] = {}
     for p in passes or []:
         passes_by_user.setdefault(p.get("user_id"), []).append(p)
-    who = {u.get("id"): u for u in users or []}
+    people = sorted(set(open_rides) | set(last_seen))
+    who = {uid: (u or {}) for uid, (u, _e) in (data.users_by_id(tuple(people)).items() if people else [])}
     today = now.astimezone(tz).date()
 
     rows = []
@@ -149,7 +171,7 @@ def _people(settings: Settings, bus_id: int, line: str, seen_min: int) -> None:
         ride = open_rides.get(uid)
         charge = charge_by_id.get(ride.get("charge_id")) if ride else None
         checks = [check_pass(p, line, today) for p in passes_by_user.get(uid, [])]
-        v = verdict(ride, charge, checks)
+        v = verdict(ride, charge, checks, now)
         level, label = VERDICTS[v]
         best = next((p for p in checks if p.valid_now and p.covers_line), None) or next(iter(checks), None)
         u = who.get(uid, {})
@@ -170,11 +192,20 @@ def _people(settings: Settings, bus_id: int, line: str, seen_min: int) -> None:
     order = {"fail": 0, "check": 1, "ok": 2}
     rows.sort(key=lambda r: order[r["_level"]])
     n = {lvl: sum(r["_level"] == lvl for r in rows) for lvl in order}
-    m = st.columns(4)
-    m[0].metric("People on board", sum(int(r["Passengers"] or 1) for r in rows))
-    m[1].metric("❌ To check", n["fail"])
-    m[2].metric("⚠️ Unclear", n["check"])
-    m[3].metric("✅ OK", n["ok"])
+    hc, _herr = data.headcount(bus_id)   # the camera's count of people vs the passengers who paid
+    camera = hc.people_counted if hc else None
+    m = st.columns(6)
+    m[0].metric("On board (camera)", "—" if camera is None else camera,
+                help="People in the newest counted photo. An estimate: the driver counts too.")
+    m[1].metric("Paid passengers", "—" if not hc or hc.paid_passengers is None else hc.paid_passengers)
+    m[2].metric("≈ Without ticket", "—" if not hc or hc.without_ticket is None else hc.without_ticket,
+                help="Camera count minus paid passengers.")
+    m[3].metric("❌ To check", n["fail"])
+    m[4].metric("⚠️ Unclear", n["check"])
+    m[5].metric("✅ OK", n["ok"])
+    if hc is not None and camera is None:
+        st.caption(f"No camera count: last one {fmt_age((now - hc.counted_at).total_seconds())}."
+                   if hc.counted_at else "No camera count yet for this bus.")
     if not rows:
         st.info(f"Nobody on bus {bus_id}: no open ride and no phone heard its beacon in the last {seen_min} min.")
         return

@@ -1,12 +1,13 @@
 try {
   var STOPS = CFG.stops;
 
-  // The map draws on canvas (fast), but the timetable vehicles' paths are shown and hidden with CSS classes,
-  // which only exist on SVG elements: those paths keep an SVG renderer.
+  // The map draws on canvas (fast), but two kinds of paths keep an SVG renderer: the timetable vehicles' paths
+  // (shown and hidden with CSS classes, which only exist on SVG elements) and the live layers replaced on every
+  // update (trail, line to the next stop: "vlive"), so a replaced one is simply gone, nothing left on a canvas.
   var svgPaths = L.svg();
   L.Path.addInitHook(function () {
     var c = this.options.className || "";
-    if (c.indexOf("vpath") !== -1) this.options.renderer = svgPaths;
+    if (c.indexOf("vpath") !== -1 || c.indexOf("vlive") !== -1) this.options.renderer = svgPaths;
   });
 
   if (CFG.tileFilter) { map.getPanes().tilePane.style.filter = CFG.tileFilter; }
@@ -81,7 +82,7 @@ try {
       var f = l.feature;
       if (!f || !f.properties || !f.properties.hit || !l.getLatLngs) return;
       var arr = pts(l);
-      var pad = (l.options.weight || 20) / 2;
+      var pad = (f.properties.hitpx || l.options.weight || 20) / 2;
       var bb = l._bb;
       if (p.x < bb[0] - pad || p.x > bb[2] + pad || p.y < bb[1] - pad || p.y > bb[3] + pad) return;
       var d = Infinity;

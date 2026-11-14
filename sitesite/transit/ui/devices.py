@@ -102,9 +102,9 @@ def render_bus_devices(fetched, tz: ZoneInfo, max_age_s: float) -> None:
         st.caption(e)
 
 
-def fleet_statuses() -> tuple[list[DeviceStatus], dict[int, int | None], list[str]]:
-    """Every device of every bus. About 2 + (number of buses x 2) calls, all but two in parallel, and the
-    device lists are cached for minutes, so a rerun (clicking a row) is usually free."""
+def fleet_statuses(with_cameras: bool = False) -> tuple[list[DeviceStatus], dict[int, int | None], list[str]]:
+    """Every device of every bus: one call for every bus's newest message (the beacons) and the device lists
+    (cached for minutes); with `with_cameras`, also each camera's newest photo metadata (a call per bus)."""
     buses, err = data.buses()
     if err:
         raise RuntimeError(f"Buses unavailable: {err}")
@@ -118,9 +118,12 @@ def fleet_statuses() -> tuple[list[DeviceStatus], dict[int, int | None], list[st
         notes.append(f"Newest messages unavailable: {terr}")
     newest = {t.bus_id: t for t in telemetry or []}
 
-    with_camera = tuple(b for b in ids if any(d.is_camera for d in (devices_by_bus[b][0] or [])))
-    frames_by_bus = data.latest_frames(with_camera) if with_camera else {}
-
+    # cameras: their newest photo's metadata (no image), one call per bus. The Fleet page asks for it; the
+    # Devices list doesn't (there only the selected device is checked, by its card)
+    frames_by_bus = {}
+    if with_cameras:
+        with_camera = tuple(b for b in ids if any(d.is_camera for d in (devices_by_bus[b][0] or [])))
+        frames_by_bus = data.latest_frames(with_camera) if with_camera else {}
     statuses: list[DeviceStatus] = []
     for bid in ids:
         devices, derr = devices_by_bus[bid]
@@ -129,7 +132,7 @@ def fleet_statuses() -> tuple[list[DeviceStatus], dict[int, int | None], list[st
             continue
         frames, ferr = frames_by_bus.get(bid, (None, None))
         if ferr:
-            notes.append(f"Bus {bid}: frames unavailable: {ferr}")
+            notes.append(f"Bus {bid}: camera unavailable: {ferr}")
         statuses.extend(combine_device_statuses(devices or [], newest.get(bid), (frames or [None])[0]))
     return statuses, route_of, notes
 
@@ -155,6 +158,21 @@ def _fragments(list_every_s: float | None, card_every_s: float | None):
     return st.fragment(run_every=list_every_s)(_device_list), st.fragment(run_every=card_every_s)(_device_card)
 
 
+def _is_selected(ds: DeviceStatus) -> bool:
+    picked = st.session_state.get(K_SELECTED_DEVICE)
+    return bool(picked) and picked[0] == ds.device.device_id
+
+
+def _with_selected_camera(statuses: list[DeviceStatus]) -> list[DeviceStatus]:
+    """The selected camera's row gets the same data its card shows (fetched for the card anyway, cached)."""
+    picked = st.session_state.get(K_SELECTED_DEVICE)
+    if not picked or picked[1] is None:
+        return statuses
+    snap, _err = data.bus_snapshot(picked[1], 1)
+    fresh = {d.device.device_id: d for d in (snap.devices if snap else [])}
+    return [fresh.get(ds.device.device_id, ds) if ds.device.is_camera and _is_selected(ds) else ds for ds in statuses]
+
+
 def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
     data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     try:
@@ -167,14 +185,18 @@ def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
         return
 
     now = datetime.now(timezone.utc)
-    ages = [_age_s(ds, now) for ds in statuses]
-    states = [_status(a, online_s) for a in ages]
+    statuses = _with_selected_camera(statuses)
+    shown = [not ds.device.is_camera or ds.frame is not None or _is_selected(ds) for ds in statuses]
+    ages = [_age_s(ds, now) if ok else None for ds, ok in zip(statuses, shown)]
+    states = [_status(a, online_s) if ok else "—" for a, ok in zip(ages, shown)]
+    beacons = [s for ds, s in zip(statuses, states) if not ds.device.is_camera]
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Buses", len(route_of))
     c2.metric("Devices", len(statuses))
-    c3.metric("Online", states.count("online"))
-    c4.metric("Offline", len(states) - states.count("online"))
-    st.caption(f"Online = the server heard from it in the last {online_s:.0f} s.")
+    c3.metric("Beacons online", beacons.count("online"))
+    c4.metric("Beacons offline", len(beacons) - beacons.count("online"))
+    st.caption(f"Online = the server heard from it in the last {online_s:.0f} s. A camera's status is shown "
+               "for the selected device (checking every camera here would take a call per bus).")
     for n in notes:
         st.caption(n)
     if not statuses:
@@ -189,8 +211,8 @@ def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
             "Bus": ds.device.bus_id,
             "Line": line_of(route_of.get(ds.device.bus_id)),
             "Status": s,
-            "Last seen": fmt_age(a),
-        } for ds, a, s in zip(statuses, ages, states)]),
+            "Last seen": fmt_age(a) if ok else "—",
+        } for ds, a, s, ok in zip(statuses, ages, states, shown)]),
         key=K_DEVICE_TABLE,
         on_select="rerun",
         selection_mode=["single-row", "single-cell"],   # a click on any cell picks its row
