@@ -124,6 +124,7 @@ def build_base_map(settings: Settings, area: Bounds, stops_payload: dict) -> fol
         location=((s + n) / 2, (w + e) / 2),
         zoom_start=12,
         tiles=None,
+        prefer_canvas=True,   # lines and stops drawn on one GPU-backed canvas instead of thousands of SVG nodes
         max_bounds=True, min_lat=s, max_lat=n, min_lon=w, max_lon=e,
         max_bounds_viscosity=1.0,
     )

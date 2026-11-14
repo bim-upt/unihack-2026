@@ -39,6 +39,10 @@ class Settings:
     live_max_age_s: float | None = None
     # a device counts as online when the server heard from it within this many seconds
     device_online_s: float = 300.0
+    # live updates: how often the map and the side panel fetch new positions (the photo follows the camera)
+    live_refresh_s: float = 1.0
+    photo_refresh_s: float = 5.0          # photo refresh when the server reports no capture interval
+    devices_list_refresh_s: float = 10.0  # the Devices page list (the selected device follows live_refresh_s)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -48,4 +52,7 @@ class Settings:
             vehicle_source=source if source in VEHICLE_SOURCES else "live",
             live_max_age_s=float(os.environ["TRANSIT_LIVE_MAX_AGE_S"]) if os.getenv("TRANSIT_LIVE_MAX_AGE_S") else None,
             device_online_s=float(os.getenv("TRANSIT_DEVICE_ONLINE_S") or 300),
+            live_refresh_s=float(os.getenv("TRANSIT_LIVE_REFRESH_S") or 1),
+            photo_refresh_s=float(os.getenv("TRANSIT_PHOTO_REFRESH_S") or 5),
+            devices_list_refresh_s=float(os.getenv("TRANSIT_DEVICES_LIST_REFRESH_S") or 10),
         )

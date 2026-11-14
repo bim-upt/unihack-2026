@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 import folium
@@ -38,7 +40,15 @@ def get_hover_payload(gtfs_dir: str, _feed: Feed) -> dict:
     return hover_stops(_feed)
 
 
+# Streamlit fades elements that are being re-run ("stale"). With live updates every second that makes the
+# map and the panel flicker, so the fade is turned off.
+NO_STALE_FADE = """<style>
+[data-stale="true"] { opacity: 1 !important; transition: none !important; }
+</style>"""
+
+
 def main() -> None:
+    st.html(NO_STALE_FADE)
     gtfs_key = str(SETTINGS.gtfs_dir)
     feed = get_feed(gtfs_key, SETTINGS.simplify_m)
     state.init_state(SETTINGS.vehicle_source)
@@ -49,14 +59,29 @@ def main() -> None:
         def line_of(api_rid: int | None) -> str:
             rid = link.gtfs_id(api_rid)
             return feed.routes[rid].short_name if rid in feed.routes else f"? (API route {api_rid})"
-        render_devices_view(line_of, SETTINGS.tz, SETTINGS.device_online_s)
+        render_devices_view(line_of, SETTINGS.tz, SETTINGS.device_online_s, live=controls.live_updates,
+                            list_every_s=SETTINGS.devices_list_refresh_s, card_every_s=SETTINGS.live_refresh_s,
+                            photo_every_s=SETTINGS.photo_refresh_s)
         return
 
+    # live updates only with a line open: the network overview has nothing that moves
+    live_part = controls.live_updates and state.selected_route_id()
+    (_live_map_view if live_part else _map_view)(gtfs_key, feed, link, link_err, controls)
+
+
+def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -> None:
+    """Map and side panel. With live updates on, this part alone re-runs every few seconds: the sidebar and
+    the map's base layer stay as they are, only the buses, the trail and the panel are redrawn."""
+    if not controls.simulated:
+        controls = replace(controls, now=datetime.now(SETTINGS.tz))
     sel_id = state.selected_route_id()
     route = feed.routes.get(sel_id) if sel_id else None
     selected = state.selected_vehicle_id()
     live = controls.source == "live"
 
+    # static: line paths and stops, part of the base map, sent to the browser once per line choice.
+    # fg: what moves (buses, trail), the only layer re-sent on each live update.
+    static = folium.FeatureGroup(name="lines")
     fg = folium.FeatureGroup(name="transit")
     vehicles: list[Vehicle] = []
     scheduled: list[Vehicle] = []
@@ -66,8 +91,8 @@ def main() -> None:
     snapshot = (None, None)
 
     if route:
-        add_route_lines(fg, feed, [route.route_id], SETTINGS.line_weight_selected)
-        add_stops(fg, feed, route, SETTINGS.stop_radius)
+        add_route_lines(static, feed, [route.route_id], SETTINGS.line_weight_selected)
+        add_stops(static, feed, route, SETTINGS.stop_radius)
         scheduled = ScheduleProvider(feed).vehicles(route.route_id, controls.now)
         if live:
             api_rid = link.api_id(route.route_id)
@@ -84,7 +109,8 @@ def main() -> None:
                 else:
                     vehicles = live_vehicles(positions, route, feed, state.heading_tracker(), SETTINGS.live_max_age_s)
             if selected and selected.isdigit():
-                snapshot = data.bus_snapshot(int(selected), SETTINGS.history_limit)
+                snapshot = data.bus_snapshot(int(selected), SETTINGS.history_limit,
+                                             photo_every_s=SETTINGS.photo_refresh_s)
                 snap, snap_err = snapshot
                 history_fetched = (snap.history, snap.errors.get("history")) if snap else (None, snap_err)
                 if history_fetched[0]:
@@ -94,11 +120,12 @@ def main() -> None:
         add_vehicles(fg, route, vehicles, selected)
     else:
         ids = feed.drawable_route_ids()
-        add_route_lines(fg, feed, ids, SETTINGS.line_weight)
-        add_hit_lines(fg, feed, ids, SETTINGS.hit_px)
+        add_route_lines(static, feed, ids, SETTINGS.line_weight)
+        add_hit_lines(static, feed, ids, SETTINGS.hit_px)
 
     area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
     base_map = build_base_map(SETTINGS, area, get_hover_payload(gtfs_key, feed))
+    static.add_to(base_map)
     # zoom to the selected line; with none, zoom 0 is raised to the smallest zoom that fills the frame
     route_box = feed.route_bounds(route.route_id) if route else None
     if route_box:
@@ -153,7 +180,9 @@ def main() -> None:
                     devices_fetched = ((snap.devices, snap.errors), None) if snap else (None, snap_err)
                     t_overview, t_devices, t_history = st.tabs(["Overview", "Devices", "History"])
                     with t_overview:
-                        render_live_bus(feed, route, bid, info_fetched, frame_fetched, SETTINGS.tz)
+                        render_live_bus(feed, route, bid, info_fetched, frame_fetched, SETTINGS.tz,
+                                        photo_meta=snap.photo_meta if snap else None,
+                                        history=snap.history if snap else None)
                     with t_devices:
                         render_bus_devices(devices_fetched, SETTINGS.tz, SETTINGS.device_online_s)
                     with t_history:
@@ -164,6 +193,9 @@ def main() -> None:
                     render_schedule_vehicle(v)
                 else:
                     st.info("This trip is no longer running.")
+
+
+_live_map_view = st.fragment(run_every=SETTINGS.live_refresh_s)(_map_view)
 
 
 main()

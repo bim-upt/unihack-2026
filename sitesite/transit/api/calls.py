@@ -206,29 +206,51 @@ class BusSnapshot:
     history: list[Telemetry] | None
     devices: list[DeviceStatus]
     errors: dict[str, str]
+    photo_meta: Frame | None = None   # metadata of the newest photo (capture time, sequence)
 
 
-def get_bus_snapshot(api: ApiClient, bus_id: int, *, history_limit: int) -> BusSnapshot:
-    """The bus panel, its Devices tab and the map trail in one go: 7 calls in parallel, none repeated."""
-    parts: dict[str, Callable[[], object]] = {
+def _parts(parts: dict[str, Callable[[], object]]) -> tuple[dict[str, object], dict[str, str]]:
+    got = fetch_many(lambda name: parts[name](), parts)
+    return {n: v for n, (v, _) in got.items()}, {n: e for n, (_, e) in got.items() if e}
+
+
+def get_bus_live(api: ApiClient, bus_id: int, *, history_limit: int) -> tuple[dict, dict]:
+    """What changes every second: position, passengers, recent positions (the trail)."""
+    return _parts({
         "position": lambda: get_bus_position(api, bus_id),
         "occupancy": lambda: get_occupancy(api, bus_id),
+        "history": lambda: get_telemetry_history(api, bus_id, limit=history_limit),
+    })
+
+
+def get_bus_setup(api: ApiClient, bus_id: int) -> tuple[dict, dict]:
+    """What rarely changes: the devices and the camera's capture interval."""
+    return _parts({
         "devices": lambda: list_bus_devices(api, bus_id),
         "capture_interval": lambda: get_capture_interval(api, bus_id),
+    })
+
+
+def get_bus_photo(api: ApiClient, bus_id: int) -> tuple[dict, dict]:
+    """The newest photo and its metadata: worth fetching once per capture interval."""
+    return _parts({
         "frame": lambda: get_latest_frame(api, bus_id),
         "frames": lambda: list_frames(api, bus_id, limit=1),
-        "history": lambda: get_telemetry_history(api, bus_id, limit=history_limit),
-    }
-    got = fetch_many(lambda name: parts[name](), parts)
-    v = {name: val for name, (val, _) in got.items()}
-    errors = {name: e for name, (_, e) in got.items() if e}
-    occupancy, interval, frames = v["occupancy"], v["capture_interval"], v["frames"] or []
+    })
+
+
+def assemble_bus_snapshot(bus_id: int, live: tuple[dict, dict], setup: tuple[dict, dict],
+                          photo: tuple[dict, dict]) -> BusSnapshot:
+    """Puts the three parts (fetched on their own schedules) together. Pure."""
+    v = {**live[0], **setup[0], **photo[0]}
+    errors = {**live[1], **setup[1], **photo[1]}
+    occupancy, interval, frames = v.get("occupancy"), v.get("capture_interval"), v.get("frames") or []
     interval_ms = interval.next_capture_ms if interval else None
     info = BusInfo(
         bus_id=int(bus_id),
-        position=v["position"],
+        position=v.get("position"),
         occupancy=occupancy.passenger_count if occupancy else None,
-        devices=tuple(v["devices"] or ()),
+        devices=tuple(v.get("devices") or ()),
         capture_interval_ms=interval_ms,
         reports=(),
         frame=None,
@@ -236,9 +258,16 @@ def get_bus_snapshot(api: ApiClient, bus_id: int, *, history_limit: int) -> BusS
     )
     return BusSnapshot(
         info=info,
-        frame=v["frame"],
-        history=v["history"],
-        devices=combine_device_statuses(v["devices"] or [], v["position"], frames[0] if frames else None,
+        frame=v.get("frame"),
+        history=v.get("history"),
+        devices=combine_device_statuses(v.get("devices") or [], v.get("position"), frames[0] if frames else None,
                                         interval_ms),
         errors=errors,
+        photo_meta=frames[0] if frames else None,
     )
+
+
+def get_bus_snapshot(api: ApiClient, bus_id: int, *, history_limit: int) -> BusSnapshot:
+    """All of it at once (no caching schedule)."""
+    return assemble_bus_snapshot(bus_id, get_bus_live(api, bus_id, history_limit=history_limit),
+                                 get_bus_setup(api, bus_id), get_bus_photo(api, bus_id))

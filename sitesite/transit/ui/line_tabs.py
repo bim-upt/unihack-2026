@@ -105,6 +105,8 @@ def render_line_picker(feed: Feed, link: RouteLink, buses) -> None:
         width="stretch",
     )
     st.caption("Click a line (here or on the map) to open it.")
+    if state.K_PENDING in st.session_state:
+        st.rerun()   # whole app, not just the live part: the sidebar's Route box must change too
 
 
 def _reports(route: Route, tz: ZoneInfo) -> None:

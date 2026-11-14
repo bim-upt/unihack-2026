@@ -19,6 +19,7 @@ class Controls:
     simulated: bool
     source: str          # "live" | "schedule"
     view: str            # "map" | "devices"
+    live_updates: bool = True
 
 
 def render_sidebar(feed: Feed, settings: Settings) -> Controls:
@@ -26,8 +27,12 @@ def render_sidebar(feed: Feed, settings: Settings) -> Controls:
         st.radio("View", list(VIEW_LABELS), key=state.K_VIEW, format_func=VIEW_LABELS.get, horizontal=True)
         view = state.view()
         if view == "devices":
+            live_updates = st.toggle(
+                f"Live updates (list every {settings.devices_list_refresh_s:g} s, "
+                f"selected device every {settings.live_refresh_s:g} s)", key=state.K_LIVE_UPDATES)
             st.button("Refresh", on_click=data.clear)
-            return Controls(now=datetime.now(settings.tz), simulated=False, source=state.vehicle_source(), view=view)
+            return Controls(now=datetime.now(settings.tz), simulated=False, source=state.vehicle_source(), view=view,
+                            live_updates=live_updates)
 
         st.header("Controls")
         st.radio(
@@ -55,6 +60,10 @@ def render_sidebar(feed: Feed, settings: Settings) -> Controls:
             if simulated:
                 tt = st.time_input("Time", value=now.time().replace(microsecond=0))
                 now = now.replace(hour=tt.hour, minute=tt.minute, second=tt.second)
-        st.caption(f"Reference time: {now:%Y-%m-%d %H:%M:%S}")
+        live_updates = st.toggle(f"Live updates (every {settings.live_refresh_s:g} s)", key=state.K_LIVE_UPDATES)
+        if not simulated:
+            st.caption("Time: now")
+        else:
+            st.caption(f"Reference time: {now:%Y-%m-%d %H:%M:%S}")
         st.button("Refresh", on_click=data.clear)
-    return Controls(now=now, simulated=simulated, source=source, view=view)
+    return Controls(now=now, simulated=simulated, source=source, view=view, live_updates=live_updates)

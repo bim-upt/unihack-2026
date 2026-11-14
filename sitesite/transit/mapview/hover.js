@@ -1,6 +1,14 @@
 try {
   var STOPS = CFG.stops;
 
+  // The map draws on canvas (fast), but the timetable vehicles' paths are shown and hidden with CSS classes,
+  // which only exist on SVG elements: those paths keep an SVG renderer.
+  var svgPaths = L.svg();
+  L.Path.addInitHook(function () {
+    var c = this.options.className || "";
+    if (c.indexOf("vpath") !== -1) this.options.renderer = svgPaths;
+  });
+
   if (CFG.tileFilter) { map.getPanes().tilePane.style.filter = CFG.tileFilter; }
 
   var css = document.createElement("style");

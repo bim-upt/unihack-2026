@@ -41,6 +41,41 @@ def kv_table(rows: dict) -> None:
     st.table(pd.DataFrame({"Value": [str(v) for v in rows.values()]}, index=list(rows.keys())))
 
 
+# ---------------------------------------------------------------- photo
+PHOTO_POSITION_MAX_S = 15   # a beacon position further than this from the photo in time is not used
+
+
+def photo_position(photo_meta, history) -> tuple[float, float] | None:
+    """Where the bus was when the photo was taken: the beacon position nearest in time. Photos carry no
+    location, so this is the best there is. Both sides use the server's receive time when they have it
+    (same clock), else the device clocks."""
+    if photo_meta is None or not history:
+        return None
+    use_server = photo_meta.received_at is not None
+    taken = photo_meta.received_at if use_server else photo_meta.captured_at
+    if taken is None:
+        return None
+    best, best_dt = None, None
+    for t in history:
+        when = t.received_at if use_server else t.time
+        if when is None or t.latlon is None:
+            continue
+        dt = abs((when - taken).total_seconds())
+        if best_dt is None or dt < best_dt:
+            best, best_dt = t, dt
+    return best.latlon if best is not None and best_dt <= PHOTO_POSITION_MAX_S else None
+
+
+def photo_caption(photo_meta, history, tz: ZoneInfo) -> str:
+    if photo_meta is None:
+        return "Capture time and place unknown."
+    when = photo_meta.captured_at or photo_meta.received_at
+    parts = [f"Captured {fmt_time(when, tz)}" if when else "Capture time unknown"]
+    ll = photo_position(photo_meta, history)
+    parts.append(f"at lat {ll[0]:.6f}, lon {ll[1]:.6f}" if ll else "location unknown")
+    return " ".join(parts) + (f" · frame #{photo_meta.frame_seq}" if photo_meta.frame_seq is not None else "")
+
+
 # ---------------------------------------------------------------- panels
 def render_network(n_routes: int, n_services: int, n_buses: int | None, api_err: str | None) -> None:
     st.subheader("Network")
@@ -60,7 +95,8 @@ def render_route_header(route: Route, *, live_count: int | None, scheduled_count
         st.warning(notice)
 
 
-def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_fetched, tz: ZoneInfo) -> None:
+def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_fetched, tz: ZoneInfo, *,
+                    photo_meta=None, history=None) -> None:
     """Overview tab of the selected bus."""
     info, err = info_fetched
     if err or info is None:
@@ -91,12 +127,8 @@ def render_live_bus(feed: Feed, route: Route, bus_id: int, info_fetched, frame_f
     if ferr:
         st.caption(f"Photo unavailable: {ferr}")
     elif frame is not None:
-        cap = []
-        if frame.meta and frame.meta.captured_at:
-            cap.append(fmt_time(frame.meta.captured_at, tz))
-        if frame.meta and frame.meta.width and frame.meta.height:
-            cap.append(f"{frame.meta.width}x{frame.meta.height}")
-        st.image(frame.jpeg, caption=" · ".join(cap) or None, width="stretch")
+        st.image(frame.jpeg, width="stretch")
+        st.caption(photo_caption(photo_meta, history, tz))
     else:
         st.caption("No photo yet.")
 

@@ -1,7 +1,7 @@
 """Device views: the sidebar's Devices page and the Devices tab of a selected bus."""
 from __future__ import annotations
 
-from dataclasses import replace
+import functools
 from datetime import datetime, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
@@ -15,6 +15,8 @@ from . import data
 from .info_panel import fmt_age, fmt_time, fmt_uptime, kv_table
 
 K_DEVICE_TABLE = "device_table"
+K_SELECTED_DEVICE = "selected_device"   # (device_id, bus_id) shown in the card
+K_LAST_PICK = "device_last_pick"       # the last row clicked, so a click is told apart from a refresh
 ROLE_ICONS = {"beacon": "📡", "camera": "📷"}
 
 
@@ -132,9 +134,24 @@ def _fleet_statuses() -> tuple[list[DeviceStatus], dict[int, int | None], list[s
     return statuses, route_of, notes
 
 
-def render_devices_view(line_of: Callable[[int | None], str], tz: ZoneInfo, online_s: float) -> None:
-    """Full page: every device of every bus on the server. `line_of` names the GTFS line of an API route."""
+def render_devices_view(line_of: Callable[[int | None], str], tz: ZoneInfo, online_s: float, *,
+                        live: bool, list_every_s: float, card_every_s: float, photo_every_s: float) -> None:
+    """Full page: every device of every bus on the server. `line_of` names the GTFS line of an API route.
+    With `live`, the list re-runs on its own every `list_every_s` and the selected device's card every
+    `card_every_s`; each part re-runs alone, the rest of the page stays as it is."""
     st.title("Devices")
+    list_part, card_part = _fragments(list_every_s if live else None, card_every_s if live else None)
+    list_part(line_of, online_s)
+    card_part(tz, online_s, photo_every_s)
+
+
+@functools.lru_cache(maxsize=None)
+def _fragments(list_every_s: float | None, card_every_s: float | None):
+    """The two self-updating parts, made once per interval setting."""
+    return st.fragment(run_every=list_every_s)(_device_list), st.fragment(run_every=card_every_s)(_device_card)
+
+
+def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
     try:
         statuses, route_of, notes = _fleet_statuses()
     except RuntimeError as exc:
@@ -159,6 +176,7 @@ def render_devices_view(line_of: Callable[[int | None], str], tz: ZoneInfo, onli
         st.info("No devices are registered.")
         return
 
+    ss = st.session_state
     event = st.dataframe(
         pd.DataFrame([{
             "Device": ds.device.device_id,
@@ -175,12 +193,34 @@ def render_devices_view(line_of: Callable[[int | None], str], tz: ZoneInfo, onli
         width="stretch",
     )
     row = picked_row(event.selection if event else None)
-    if row is None or not 0 <= row < len(statuses):
+    picked = statuses[row].device if row is not None and 0 <= row < len(statuses) else None
+    picked_key = (picked.device_id, picked.bus_id) if picked else None
+    # a click on another device: remember it (by id, the list order may change) and redraw the card at once.
+    # An empty selection never clears it, so a list refresh can't close the card; the card has a Close button.
+    if picked_key is not None and picked_key != ss.get(K_LAST_PICK):
+        ss[K_LAST_PICK] = picked_key
+        ss[K_SELECTED_DEVICE] = picked_key
+        st.rerun()
+
+
+def _device_card(tz: ZoneInfo, online_s: float, photo_every_s: float) -> None:
+    picked = st.session_state.get(K_SELECTED_DEVICE)
+    if not picked:
         st.caption("Click a device to see it.")
         return
-    ds = statuses[row]
-    if ds.device.is_camera and ds.device.bus_id is not None:
-        interval, _ = data.capture_interval(ds.device.bus_id)   # only for the device being looked at
-        if interval:
-            ds = replace(ds, capture_interval_ms=interval.next_capture_ms)
-    render_device_card(ds, tz, online_s, now)
+    device_id, bus_id = picked
+    if st.button("✕ Close", key="close_device"):
+        st.session_state[K_SELECTED_DEVICE] = None
+        st.rerun()
+    if bus_id is None:
+        st.caption(f"Device {device_id} has no bus.")
+        return
+    snap, err = data.bus_snapshot(bus_id, 1, photo_every_s=photo_every_s)
+    if err or snap is None:
+        st.error(f"Device data unavailable: {err or 'no answer'}")
+        return
+    ds = next((d for d in snap.devices if d.device.device_id == device_id), None)
+    if ds is None:
+        st.warning(f"Device {device_id} is no longer registered on bus {bus_id}.")
+        return
+    render_device_card(ds, tz, online_s)

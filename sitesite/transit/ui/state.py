@@ -18,13 +18,14 @@ K_BUS_TABLE_IDS = "bus_table_ids"
 K_TRACKER = "heading_tracker"
 K_LINE_TABLE = "line_table"
 K_LINE_TABLE_IDS = "line_table_ids"
+K_LIVE_UPDATES = "live_updates"
 K_VIEW = "view"                 # "map" | "devices"
 
 
 def init_state(default_source: str = "live") -> None:
     ss = st.session_state
     for k, v in ((K_ROUTE, ""), (K_VEHICLE, None), (K_LAST_TIP, None), (K_LAST_DRAWING, None),
-                 (K_BLOCK, None), (K_SOURCE, default_source), (K_BUS_TABLE_IDS, []), (K_VIEW, "map")):
+                 (K_BLOCK, None), (K_SOURCE, default_source), (K_BUS_TABLE_IDS, []), (K_VIEW, "map"), (K_LIVE_UPDATES, True)):
         ss.setdefault(k, v)
     if K_PENDING in ss:
         ss[K_ROUTE] = ss.pop(K_PENDING)
@@ -89,8 +90,7 @@ def on_line_table_select() -> None:
     rows = sel.get("rows") or [c[0] for c in sel.get("cells") or []]
     ids = ss.get(K_LINE_TABLE_IDS) or []
     if rows and 0 <= rows[0] < len(ids):
-        ss[K_ROUTE] = ids[rows[0]]
-        ss[K_VEHICLE] = None
+        ss[K_PENDING] = ids[rows[0]]   # applied by init_state on the full rerun (the sidebar shows the line)
 
 
 # ---------------------------------------------------------------- map clicks
