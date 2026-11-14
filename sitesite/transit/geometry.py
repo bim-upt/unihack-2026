@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cached_property
 
 import numpy as np
+
+from .config import Bounds
 
 M_PER_DEG = 111_320.0
 
@@ -21,26 +22,61 @@ def bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float | None:
     return float(np.degrees(np.arctan2(dx, dy)) % 360)
 
 
+def pad_bounds(bounds: Bounds, km: float) -> Bounds:
+    (s, w), (n, e) = bounds
+    dlat = km * 1000 / M_PER_DEG
+    dlon = km * 1000 / (M_PER_DEG * np.cos(np.radians((s + n) / 2)))
+    return (s - dlat, w - dlon), (n + dlat, e + dlon)
+
+
+def simplify(coords: np.ndarray, scale: np.ndarray, tol_m: float) -> np.ndarray:
+    n = len(coords)
+    if tol_m <= 0 or n < 3:
+        return coords
+    pts = coords * scale
+    keep = np.zeros(n, dtype=bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a, ab = pts[i], pts[j] - pts[i]
+        seg = pts[i + 1:j]
+        l2 = float(ab @ ab)
+        if l2 == 0.0:
+            d = np.linalg.norm(seg - a, axis=1)
+        else:
+            t = np.clip(((seg - a) @ ab) / l2, 0.0, 1.0)
+            d = np.linalg.norm(seg - (a + t[:, None] * ab), axis=1)
+        k = int(d.argmax())
+        if d[k] > tol_m:
+            m = i + 1 + k
+            keep[m] = True
+            stack.extend(((i, m), (m, j)))
+    return coords[keep]
+
+
 @dataclass(frozen=True, eq=False)
 class Shape:
-    coords: np.ndarray   
-    cum: np.ndarray      
-    scale: np.ndarray    
+    coords: np.ndarray            
+    cum: np.ndarray
+    scale: np.ndarray
+    lonlat: list[list[float]]
 
     @classmethod
-    def from_coords(cls, coords) -> "Shape":
+    def from_coords(cls, coords, simplify_m: float = 0.0) -> "Shape":
         coords = np.asarray(coords, dtype=float)
         scale = _scale(float(coords[:, 0].mean()))
         seg = np.linalg.norm(np.diff(coords * scale, axis=0), axis=1)
-        return cls(coords, np.concatenate([[0.0], np.cumsum(seg)]), scale)
+
+        cum = np.concatenate([[0.0], np.cumsum(seg)])
+        display = simplify(coords, scale, simplify_m)
+        return cls(coords, cum, scale, display[:, ::-1].tolist())
 
     @property
     def length(self) -> float:
         return float(self.cum[-1])
-
-    @cached_property
-    def lonlat(self) -> list[list[float]]:
-        return self.coords[:, ::-1].tolist()
 
     def project(self, pts, monotonic: bool = True) -> np.ndarray:
         pts = np.atleast_2d(np.asarray(pts, dtype=float))

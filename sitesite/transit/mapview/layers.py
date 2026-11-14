@@ -5,9 +5,10 @@ from typing import Iterable
 import folium
 
 from ..colors import contrast_path_colors
-from ..config import Settings
+from ..config import Bounds, Settings
 from ..domain import Route, Vehicle
 from ..gtfs import Feed
+from .area import LockToArea
 from .hover import HoverInfo
 from .icons import ICON_PX, vehicle_html
 
@@ -94,7 +95,26 @@ def hover_stops(feed: Feed) -> dict[str, list[list[float]]]:
     }
 
 
-def build_base_map(settings: Settings, stops_payload: dict) -> folium.Map:
-    m = folium.Map(location=settings.map_center, zoom_start=settings.zoom_start, tiles=settings.tiles)
+def build_base_map(settings: Settings, area: Bounds, stops_payload: dict) -> folium.Map:
+    (s, w), (n, e) = area
+    box = [[s, w], [n, e]]
+    m = folium.Map(
+        location=((s + n) / 2, (w + e) / 2),
+        zoom_start=12,
+        tiles=None,
+        max_bounds=True, min_lat=s, max_lat=n, min_lon=w, max_lon=e,
+        max_bounds_viscosity=1.0,      
+    )
+    folium.TileLayer(
+        settings.tiles,
+        max_zoom=settings.max_zoom,
+        no_wrap=True,
+        bounds=box,
+        update_when_idle=True,
+        update_when_zooming=False,
+        control=False,
+    ).add_to(m)
+    m.fit_bounds(box)
+    LockToArea(area).add_to(m)
     HoverInfo(stops_payload, settings.tile_filter).add_to(m)
     return m

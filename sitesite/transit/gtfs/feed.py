@@ -11,6 +11,7 @@ from ..colors import clean_hex, distinct_colors, readable_text_color
 from ..domain import Route, Stop, Trip
 from ..geometry import Shape
 from .calendar import active_services
+from ..config import Bounds
 
 
 @dataclass(eq=False)
@@ -47,6 +48,17 @@ class Feed:
             shape = self.shape_for(trip)
             self._stop_dist[trip.trip_id] = None if shape is None else shape.project(trip.coords)
         return self._stop_dist[trip.trip_id]
+
+    def bounds(self) -> Bounds:
+        if self.shapes:
+            pts = np.vstack([s.coords for s in self.shapes.values()])
+        else:
+            pts = np.array([[s.lat, s.lon] for s in self.stops.values()])
+        pts = pts[~((np.abs(pts[:, 0]) < 1e-6) & (np.abs(pts[:, 1]) < 1e-6))]
+        return (
+            (float(pts[:, 0].min()), float(pts[:, 1].min())),
+            (float(pts[:, 0].max()), float(pts[:, 1].max())),
+        )
 
 
 # ------- readers
@@ -96,7 +108,7 @@ def _load_stops(base: Path) -> dict[str, Stop]:
     }
 
 
-def _load_shapes(base: Path) -> dict[str, Shape]:
+def _load_shapes(base: Path, simplify_m: float) -> dict[str, Shape]:
     path = base / "shapes.txt"
     if not path.exists():
         return {}
@@ -104,7 +116,7 @@ def _load_shapes(base: Path) -> dict[str, Shape]:
                      usecols=["shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence"])
     df = df.sort_values(["shape_id", "shape_pt_sequence"])
     return {
-        sid: Shape.from_coords(g[["shape_pt_lat", "shape_pt_lon"]].to_numpy(float))
+        sid: Shape.from_coords(g[["shape_pt_lat", "shape_pt_lon"]].to_numpy(float), simplify_m)
         for sid, g in df.groupby("shape_id", sort=False)
         if len(g) > 1
     }
@@ -143,11 +155,11 @@ def _load_trips(base: Path, trips_df: pd.DataFrame, stops: dict[str, Stop]) -> d
     return out
 
 
-def load_feed(gtfs_dir: Path) -> Feed:
+def load_feed(gtfs_dir: Path, simplify_m: float = 0.0) -> Feed:
     base = Path(gtfs_dir)
     routes = _load_routes(base)
     stops = _load_stops(base)
-    shapes = _load_shapes(base)
+    shapes = _load_shapes(base, simplify_m)
     trips_df = _ensure(_read(base, "trips.txt"), "shape_id", "trip_headsign").drop_duplicates("trip_id")
     trips = _load_trips(base, trips_df, stops)
 

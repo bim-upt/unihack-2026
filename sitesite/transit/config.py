@@ -7,17 +7,21 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 MODE_NAMES = {"0": "Tram", "3": "Bus", "11": "Trolleybus"}
-
+Bounds = tuple[tuple[float, float], tuple[float, float]]
 
 @dataclass(frozen=True)
 class Settings:
     gtfs_dir: Path = Path("gtfs")
     tz: ZoneInfo = ZoneInfo("Europe/Bucharest")
-    map_center: tuple[float, float] = (45.7489, 21.2087)
-    zoom_start: int = 12
     map_height: int = 680
     tiles: str = "OpenStreetMap"
     tile_filter: str = "grayscale(1) contrast(0.8) brightness(1.12)"
+
+    area_bounds: Bounds | None = None
+    area_pad_km: float = 2.0
+    max_zoom: int = 18
+    simplify_m: float = 2.0
+
     stop_radius: int = 8
     hit_px: int = 22
     line_weight: int = 4

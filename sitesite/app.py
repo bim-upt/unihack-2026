@@ -8,6 +8,7 @@ from streamlit_folium import st_folium
 
 from transit.config import Settings
 from transit.domain import Vehicle
+from transit.geometry import pad_bounds
 from transit.gtfs import Feed, load_feed
 from transit.mapview.layers import (
     add_hit_lines, add_route_lines, add_stops, add_vehicles, build_base_map, hover_stops,
@@ -23,8 +24,8 @@ DETAILS = DummyDetailsProvider()
 
 
 @st.cache_resource(show_spinner="Loading GTFS...")
-def get_feed(gtfs_dir: str) -> Feed:
-    return load_feed(Path(gtfs_dir))
+def get_feed(gtfs_dir: str, simplify_m: float) -> Feed:
+    return load_feed(Path(gtfs_dir), simplify_m=simplify_m)
 
 
 @st.cache_resource
@@ -51,7 +52,7 @@ def get_vehicles(feed: Feed, route_id: str, controls: Controls) -> tuple[list[Ve
 
 def main() -> None:
     gtfs_key = str(SETTINGS.gtfs_dir)
-    feed = get_feed(gtfs_key)
+    feed = get_feed(gtfs_key, SETTINGS.simplify_m)
     state.init_state()
     controls = render_sidebar(feed, SETTINGS)
 
@@ -71,7 +72,8 @@ def main() -> None:
         add_route_lines(fg, feed, ids, SETTINGS.line_weight)
         add_hit_lines(fg, feed, ids, SETTINGS.hit_px)
 
-    base_map = build_base_map(SETTINGS, get_hover_payload(gtfs_key, feed))
+    area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
+    base_map = build_base_map(SETTINGS, area, get_hover_payload(gtfs_key, feed))
 
     col_map, col_info = st.columns([3, 1])
     with col_map:
