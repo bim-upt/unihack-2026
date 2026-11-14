@@ -19,7 +19,8 @@ class Settings:
 
     area_bounds: Bounds | None = None
     area_pad_km: float = 2.0
-    max_zoom: int = 18
+    max_zoom: int = 17
+    tile_native_zoom: int | None = 14
     simplify_m: float = 2.0
 
     stop_radius: int = 8

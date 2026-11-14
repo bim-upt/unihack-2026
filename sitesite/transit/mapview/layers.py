@@ -95,6 +95,19 @@ def hover_stops(feed: Feed) -> dict[str, list[list[float]]]:
     }
 
 
+def _tile_options(settings: Settings, box: list) -> dict:
+    opts = {
+        "noWrap": True,
+        "bounds": box,                 
+        "updateWhenIdle": True,        
+        "updateWhenZooming": False,    
+        "keepBuffer": 4,               
+    }
+    if settings.tile_native_zoom is not None:
+        opts["minNativeZoom"] = settings.tile_native_zoom
+    return opts
+
+
 def build_base_map(settings: Settings, area: Bounds, stops_payload: dict) -> folium.Map:
     (s, w), (n, e) = area
     box = [[s, w], [n, e]]
@@ -103,16 +116,14 @@ def build_base_map(settings: Settings, area: Bounds, stops_payload: dict) -> fol
         zoom_start=12,
         tiles=None,
         max_bounds=True, min_lat=s, max_lat=n, min_lon=w, max_lon=e,
-        max_bounds_viscosity=1.0,      
+        max_bounds_viscosity=1.0,    
     )
     folium.TileLayer(
         settings.tiles,
         max_zoom=settings.max_zoom,
-        no_wrap=True,
-        bounds=box,
-        update_when_idle=True,
-        update_when_zooming=False,
+        max_native_zoom=settings.tile_native_zoom or settings.max_zoom,
         control=False,
+        **_tile_options(settings, box),
     ).add_to(m)
     m.fit_bounds(box)
     LockToArea(area).add_to(m)
