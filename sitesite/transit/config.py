@@ -49,6 +49,7 @@ class Settings:
     fleet_offline_s: float = 600.0        # ... and for longer than this: "offline"
     money_refresh_s: float = 10.0         # the Money page
     health_refresh_s: float = 30.0        # the Line health page (one call per bus each time)
+    sightings_refresh_s: float = 30.0     # the Sightings page
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,4 +68,5 @@ class Settings:
             fleet_offline_s=float(os.getenv("TRANSIT_FLEET_OFFLINE_S") or 600),
             money_refresh_s=float(os.getenv("TRANSIT_MONEY_REFRESH_S") or 10),
             health_refresh_s=float(os.getenv("TRANSIT_HEALTH_REFRESH_S") or 30),
+            sightings_refresh_s=float(os.getenv("TRANSIT_SIGHTINGS_REFRESH_S") or 30),
         )

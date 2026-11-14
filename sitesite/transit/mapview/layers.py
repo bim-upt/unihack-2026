@@ -49,8 +49,8 @@ def _add_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int, opacity: f
             ).add_to(fg)
 
 
-def add_route_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int) -> None:
-    _add_lines(fg, feed, route_ids, weight, 0.95, hit=False)
+def add_route_lines(fg, feed: Feed, route_ids: Iterable[str], weight: int, opacity: float = 0.95) -> None:
+    _add_lines(fg, feed, route_ids, weight, opacity, hit=False)
 
 
 def add_hit_lines(fg, feed: Feed, route_ids: Iterable[str], hit_px: int) -> None:

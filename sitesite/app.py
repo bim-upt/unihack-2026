@@ -29,6 +29,7 @@ from transit.ui.users import render_users_view
 from transit.ui.fleet import render_fleet_view
 from transit.ui.money import render_money_view
 from transit.ui.health import render_health_view
+from transit.ui.sightings import render_sightings_view
 
 st.set_page_config(page_title="Transit Admin", layout="wide")
 SETTINGS = Settings.from_env()
@@ -65,6 +66,15 @@ def main() -> None:
         data.render_connection_lost()   # one banner, /health every second, no other calls until it's back
         return
     link, link_err = data.route_link(gtfs_key, feed)
+
+    if controls.view == "sightings":
+        def sightings_line(api_rid: int | None) -> str:
+            rid = link.gtfs_id(api_rid)
+            return feed.routes[rid].short_name if rid in feed.routes else f"? (API route {api_rid})"
+        area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
+        render_sightings_view(SETTINGS, area, sightings_line, feed, get_hover_payload(gtfs_key, feed),
+                              live=controls.live_updates)
+        return
 
     if controls.view == "health":
         def health_gtfs_of(api_rid: int | None) -> str | None:

@@ -217,9 +217,17 @@ def all_reports():
     return _safe(lambda: list_reports(api_client()))
 
 
+# ---------------------------------------------------------------- sightings page
+@st.cache_resource(ttl=20, show_spinner=False)
+def sightings_all():
+    """Every sighting the server kept (it keeps the newest 20000): newest first, read 1000 at a time. There is
+    no date filter on /sightings, so the page cuts the window itself."""
+    return _safe(lambda: list_all_records(api_client(), "sightings", max_pages=20))
+
+
 def clear() -> None:
     for fn in (route_positions, reports, buses, _bus_live, _bus_setup, _bus_photo,
                fleet_devices, latest_telemetry, latest_frames, capture_interval, users, user, user_activity, ride,
-               charges, pass_catalog, recent_history, all_reports):
+               charges, pass_catalog, recent_history, all_reports, sightings_all):
         fn.clear()
     # the route link is left alone: it is rebuilt every 10 minutes on its own
