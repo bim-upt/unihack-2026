@@ -17,6 +17,16 @@ def _get_model(path: str = MODEL_PATH) -> YOLO:
     return YOLO(path)
 
 
+def warmup(model_path: str = MODEL_PATH, runs: int = 2) -> None:
+    model = _get_model(model_path)
+    dummy = np.zeros((IMGSZ, IMGSZ, 3), dtype=np.uint8)
+    for _ in range(runs):
+        model.predict(
+            dummy, conf=CONF, imgsz=IMGSZ, classes=PERSON_CLASSES, verbose=False
+        )
+
+
+
 def _to_bgr(image) -> np.ndarray:
     if isinstance(image, (bytes, bytearray)):
         arr = cv2.imdecode(np.frombuffer(image, np.uint8), cv2.IMREAD_COLOR)
@@ -46,4 +56,6 @@ def load_image_for_counter(path: str) -> bytes:
 if __name__ == "__main__":
     import sys
 
-    print(count_people(load_image_for_counter(sys.argv[1])))
+    warmup()
+    if len(sys.argv) > 1:
+        print(count_people(load_image_for_counter(sys.argv[1])))
