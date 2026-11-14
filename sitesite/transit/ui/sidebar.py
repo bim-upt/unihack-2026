@@ -11,7 +11,7 @@ from . import data, state
 
 SOURCE_LABELS = {"live": "Live (API)", "schedule": "Schedule (GTFS)"}
 VIEW_LABELS = {"map": "🗺️ Map", "fleet": "🚍 Fleet", "health": "🚦 Line health", "devices": "📡 Devices",
-               "sightings": "📶 Sightings", "users": "👤 Users", "money": "💰 Money"}
+               "sightings": "📶 Sightings", "inspector": "🎫 Inspector", "users": "👤 Users", "money": "💰 Money"}
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,7 @@ def render_sidebar(feed: Feed, settings: Settings) -> Controls:
                 "money": f"every {settings.money_refresh_s:g} s",
                 "health": f"every {settings.health_refresh_s:g} s",
                 "sightings": f"every {settings.sightings_refresh_s:g} s",
+                "inspector": f"every {settings.inspector_refresh_s:g} s",
                 "devices": f"list every {settings.devices_list_refresh_s:g} s, "
                            f"selected device every {settings.live_refresh_s:g} s",
                 "users": f"list every {settings.devices_list_refresh_s:g} s, "

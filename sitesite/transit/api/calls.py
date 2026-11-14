@@ -108,8 +108,9 @@ def list_pass_products(api: ApiClient) -> list[PassProduct] | None:
 
 
 # ---------------------------------------------------------------- server reachable?
-def server_up(api: ApiClient, timeout_s: float = 1.5) -> bool:
-    """GET /health once, quickly, without the automatic retries of the normal calls (needs no token)."""
+def server_up(api: ApiClient, timeout_s: float = 3.0) -> bool:
+    """GET /health once, without the automatic retries of the normal calls (needs no token). 3 s: the server
+    sometimes takes 1.5 s to answer, and a shorter limit took a slow moment for an outage."""
     try:
         r = requests.get(api.transport.base_url + "/health", timeout=timeout_s, verify=api.transport.verify_tls)
         return r.status_code == 200

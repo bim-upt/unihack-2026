@@ -225,9 +225,27 @@ def sightings_all():
     return _safe(lambda: list_all_records(api_client(), "sightings", max_pages=20))
 
 
+# ---------------------------------------------------------------- inspector page
+@st.cache_resource(ttl=5, show_spinner=False)
+def bus_rides(bus_id: int):
+    return _safe(lambda: list_all_records(api_client(), "rides", bus_id=bus_id, max_pages=2))
+
+
+@st.cache_resource(ttl=5, show_spinner=False)
+def bus_sightings(bus_id: int):
+    """The newest sightings of this bus's beacon (newest first)."""
+    return _safe(lambda: list_records(api_client(), "sightings", bus_id=bus_id, limit=1000))
+
+
+@st.cache_resource(ttl=30, show_spinner=False)
+def all_passes():
+    return _safe(lambda: list_all_records(api_client(), "passes"))
+
+
 def clear() -> None:
     for fn in (route_positions, reports, buses, _bus_live, _bus_setup, _bus_photo,
                fleet_devices, latest_telemetry, latest_frames, capture_interval, users, user, user_activity, ride,
-               charges, pass_catalog, recent_history, all_reports, sightings_all):
+               charges, pass_catalog, recent_history, all_reports, sightings_all, bus_rides, bus_sightings,
+               all_passes):
         fn.clear()
     # the route link is left alone: it is rebuilt every 10 minutes on its own
