@@ -12,7 +12,7 @@ from transit.api.errors import CONNECTION_LOST
 from transit.colors import contrast_path_colors
 from transit.config import Settings
 from transit.domain import Vehicle
-from transit.geometry import pad_bounds, view_for
+from transit.geometry import pad_bounds
 from transit.gtfs import Feed, load_feed
 from transit.nextstop import next_stop
 from transit.mapview.layers import (
@@ -35,7 +35,6 @@ from transit.ui.inspector import render_inspector_view
 
 st.set_page_config(page_title="Transit Admin", layout="wide")
 SETTINGS = Settings.from_env()
-MAP_WIDTH_PX = 850   # rough width of the map column, only used to pick a zoom that fits the line
 
 
 @st.cache_resource(show_spinner="Loading GTFS...")
@@ -93,7 +92,7 @@ def main() -> None:
             rid = link.gtfs_id(api_rid)
             return rid if rid in feed.routes else None
         area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
-        render_health_view(feed, SETTINGS, area, health_gtfs_of, MAP_WIDTH_PX, live=controls.live_updates)
+        render_health_view(feed, SETTINGS, area, health_gtfs_of, live=controls.live_updates)
         return
 
     if controls.view == "money":
@@ -195,16 +194,10 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
     area = SETTINGS.area_bounds or pad_bounds(feed.bounds(), SETTINGS.area_pad_km)
     # hover stop data: with a line open only that line's stops (the map is re-sent on every live update)
     hover = get_hover_payload(gtfs_key, feed)
-    base_map = build_base_map(SETTINGS, area, {route.route_id: hover.get(route.route_id, [])} if route else hover)
+    # with a line open the map opens fitted to it (in the browser, at the map's real width)
+    base_map = build_base_map(SETTINGS, area, {route.route_id: hover.get(route.route_id, [])} if route else hover,
+                              focus=feed.route_bounds(route.route_id) if route else None)
     static.add_to(base_map)
-    # zoom to the selected line; with none, zoom 0 is raised to the smallest zoom that fills the frame
-    route_box = feed.route_bounds(route.route_id) if route else None
-    if route_box:
-        center, zoom = view_for(route_box, MAP_WIDTH_PX, SETTINGS.map_height, SETTINGS.max_zoom)
-    else:
-        (s_, w_), (n_, e_) = area
-        center, zoom = ((s_ + n_) / 2, (w_ + e_) / 2), 0
-
     # left: the map with the line's reference tabs under it; right: the line, its buses, the picked bus
     col_map, col_side = st.columns([3, 2], gap="medium")
     with col_map:
@@ -214,8 +207,6 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
             key="map",
             height=SETTINGS.map_height,
             use_container_width=True,
-            center=center,
-            zoom=zoom,
             returned_objects=["last_active_drawing", "last_object_clicked_tooltip"],
         )
 

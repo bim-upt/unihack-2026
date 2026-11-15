@@ -13,7 +13,8 @@ from datetime import datetime, timedelta, timezone
 from ..api import ApiClient, fetch_many, get_telemetry_history
 from ..api.models import Telemetry
 
-KEEP = timedelta(hours=3, minutes=15)   # the longest window a page asks for (Line health: 3 h), plus margin
+KEEP = timedelta(hours=25)              # the longest window a page asks for (Sightings: 24 h), plus margin;
+                                        # bounded anyway: the server keeps only the newest 5000 positions a bus
 OVERLAP = timedelta(seconds=2)          # re-ask a little before the newest held, so nothing is missed
 PAGE = 1000                             # the most the server gives in one call
 MAX_PAGES = 6                           # a window is paged back at most this far (the server keeps 5000 a bus)
@@ -57,6 +58,9 @@ class HistoryStore:
         """bus id -> (positions received since `start`, newest first; error). A bus is asked again only if its
         rows are older than `max_age_s`, and then only for what's new (or for an earlier `start`)."""
         now_mono = time.monotonic()
+        # nothing older than KEEP is held: an older start ("All kept") is asked as KEEP ago, so its coverage is
+        # reached and it isn't downloaded again on every update
+        start = max(start, datetime.now(timezone.utc) - KEEP + timedelta(minutes=1))
         plans: dict[int, datetime] = {}
         with self._lock:
             for bid in bus_ids:

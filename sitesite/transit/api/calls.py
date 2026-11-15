@@ -192,58 +192,7 @@ def combine_device_statuses(devices: Iterable[Device], telemetry: Telemetry | No
     return out
 
 
-def get_device_statuses(api: ApiClient, bus_id: int) -> tuple[list[DeviceStatus], dict[str, str]]:
-    """Every device of one bus with its newest message: 4 small calls, made in parallel. Raises if the
-    device list itself fails; the other parts are best effort and their errors come back in the dict."""
-    parts: dict[str, Callable[[], object]] = {
-        "devices": lambda: list_bus_devices(api, bus_id),
-        "position": lambda: get_bus_position(api, bus_id),
-        "frames": lambda: list_frames(api, bus_id, limit=1),
-        "capture_interval": lambda: get_capture_interval(api, bus_id),
-    }
-    got = fetch_many(lambda name: parts[name](), parts)
-    devices, err = got["devices"]
-    if err:
-        raise TransportError(f"devices: {err}")
-    errors = {name: e for name, (_, e) in got.items() if e}
-    frames = got["frames"][0] or []
-    interval = got["capture_interval"][0]
-    return combine_device_statuses(
-        devices or [], got["position"][0], frames[0] if frames else None,
-        interval.next_capture_ms if interval else None,
-    ), errors
-
-
 # ---------------------------------------------------------------- aggregate for the bus panel
-def get_bus_info(api: ApiClient, bus_id: int, *, line: str | None = None, with_frame: bool = False) -> BusInfo:
-    """Everything the bus panel shows. The parts are separate calls, made in parallel; a part that fails
-    is left empty and its error comes back in `errors`."""
-    parts: dict[str, Callable[[], object]] = {
-        "position": lambda: get_bus_position(api, bus_id),
-        "occupancy": lambda: get_occupancy(api, bus_id),
-        "devices": lambda: list_bus_devices(api, bus_id),
-        "capture_interval": lambda: get_capture_interval(api, bus_id),
-    }
-    if line:
-        parts["reports"] = lambda: list_reports(api, line=line)
-    if with_frame:
-        parts["frame"] = lambda: get_latest_frame(api, bus_id)
-    got = fetch_many(lambda name: parts[name](), parts)
-    value = {name: v for name, (v, _) in got.items()}
-    occupancy, interval = value["occupancy"], value["capture_interval"]
-
-    return BusInfo(
-        bus_id=int(bus_id),
-        position=value["position"],
-        occupancy=occupancy.passenger_count if occupancy else None,
-        devices=tuple(value["devices"] or ()),
-        capture_interval_ms=interval.next_capture_ms if interval else None,
-        reports=tuple(value.get("reports") or ()),
-        frame=value.get("frame"),
-        errors={name: e for name, (_, e) in got.items() if e},
-    )
-
-
 # ---------------------------------------------------------------- everything for the selected bus, at once
 @dataclass(frozen=True)
 class BusSnapshot:
@@ -259,15 +208,6 @@ class BusSnapshot:
 def _parts(parts: dict[str, Callable[[], object]]) -> tuple[dict[str, object], dict[str, str]]:
     got = fetch_many(lambda name: parts[name](), parts)
     return {n: v for n, (v, _) in got.items()}, {n: e for n, (_, e) in got.items() if e}
-
-
-def get_bus_live(api: ApiClient, bus_id: int, *, history_limit: int) -> tuple[dict, dict]:
-    """What changes every second: position, passengers, recent positions (the trail)."""
-    return _parts({
-        "position": lambda: get_bus_position(api, bus_id),
-        "occupancy": lambda: get_occupancy(api, bus_id),
-        "history": lambda: get_telemetry_history(api, bus_id, limit=history_limit),
-    })
 
 
 def get_bus_setup(api: ApiClient, bus_id: int) -> tuple[dict, dict]:
@@ -299,8 +239,6 @@ def assemble_bus_snapshot(bus_id: int, live: tuple[dict, dict], setup: tuple[dic
         occupancy=occupancy.passenger_count if occupancy else None,
         devices=tuple(v.get("devices") or ()),
         capture_interval_ms=interval_ms,
-        reports=(),
-        frame=None,
         errors={k: e for k, e in errors.items() if k in ("position", "occupancy", "devices", "capture_interval")},
     )
     return BusSnapshot(
@@ -315,7 +253,3 @@ def assemble_bus_snapshot(bus_id: int, live: tuple[dict, dict], setup: tuple[dic
     )
 
 
-def get_bus_snapshot(api: ApiClient, bus_id: int, *, history_limit: int) -> BusSnapshot:
-    """All of it at once (no caching schedule)."""
-    return assemble_bus_snapshot(bus_id, get_bus_live(api, bus_id, history_limit=history_limit),
-                                 get_bus_setup(api, bus_id), get_bus_photo(api, bus_id))

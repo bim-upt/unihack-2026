@@ -338,6 +338,4 @@ class BusInfo:
     occupancy: int | None
     devices: tuple[Device, ...]
     capture_interval_ms: int | None
-    reports: tuple[Report, ...]
-    frame: FrameImage | None
     errors: dict[str, str] = field(default_factory=dict) 

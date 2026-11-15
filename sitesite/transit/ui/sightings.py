@@ -18,7 +18,6 @@ from streamlit_folium import st_folium
 
 from ..config import Bounds, Settings
 from ..gtfs import Feed
-from ..geometry import view_for
 from ..mapview.layers import add_background_lines, add_hit_lines, add_route_lines, build_base_map
 from . import data
 
@@ -34,7 +33,6 @@ REASONS = {
 }
 SHOW = {"All": None, "Accepted": True, "Rejected": False}
 K_WINDOW, K_SHOW, K_LINE, K_ONLY_LINE = "sight_window", "sight_show", "sight_line", "sight_only_line"
-MAP_WIDTH_PX = 700   # rough width of the map column, only to pick a zoom that fits one line
 
 
 def bucket_for(minutes: int | None) -> tuple[str, str]:
@@ -139,7 +137,7 @@ def _sightings(settings: Settings, area: Bounds, line_of: Callable[[int | None],
         _hot_spots(settings, area, df, route_of, SHOW[show], now, minutes, feed, hover_payload, one_line or None)
     with col_side:
         st.subheader("Accepted vs rejected")
-        _over_time(df, minutes)
+        _over_time(df, minutes, tz)
         st.subheader("Why rejected")
         _reasons(df)
 
@@ -163,7 +161,8 @@ def _hot_spots(settings: Settings, area: Bounds, df: pd.DataFrame, route_of: dic
     # the network, pale, under the heat map; hovering a line shows its name and stops (same as the Map page)
     # with one line picked: only that line, drawn clearly, and the map zooms to it (easier to read)
     # hover names the lines in the corner box, but doesn't thicken them or pop up their stops here
-    base = build_base_map(settings, area, {}, highlight_px=0)
+    base = build_base_map(settings, area, {}, highlight_px=0,
+                          focus=feed.route_bounds(one_line) if one_line else None)   # opens fitted to the line
     lines = folium.FeatureGroup(name="lines")
     ids_drawn = [one_line] if one_line else feed.drawable_route_ids()
     if one_line:
@@ -172,12 +171,6 @@ def _hot_spots(settings: Settings, area: Bounds, df: pd.DataFrame, route_of: dic
     else:   # the whole network: one pale layer that is also the hover target
         add_background_lines(lines, feed, ids_drawn, settings.line_weight, LINES_OPACITY, settings.hit_px)
     lines.add_to(base)
-    box = feed.route_bounds(one_line) if one_line else None
-    if box:
-        center, zoom = view_for(box, MAP_WIDTH_PX, settings.map_height, settings.max_zoom)
-    else:
-        (s_, w_), (n_, e_) = area
-        center, zoom = ((s_ + n_) / 2, (w_ + e_) / 2), 0
     fg = folium.FeatureGroup(name="sightings")
     if len(pts):
         HeatMap(pts[["lat", "lon"]].values.tolist(), radius=18, blur=22, min_opacity=0.35).add_to(fg)
@@ -186,14 +179,15 @@ def _hot_spots(settings: Settings, area: Bounds, df: pd.DataFrame, route_of: dic
                                 fill_color=OUTCOME_COLOR["rejected"], fill_opacity=0.9,
                                 tooltip=f"Rejected · {r['reason'] or '—'} · bus {r['bus_id']} · line {r['line']}").add_to(fg)
     st_folium(base, feature_group_to_add=fg, key="sightings_map", height=settings.map_height,
-              use_container_width=True, center=center, zoom=zoom, returned_objects=[])
+              use_container_width=True, returned_objects=[])
     st.caption(f"Where sightings happened: {len(pts)} of {len(placed)} placed at their bus's position "
                f"(within {MATCH_S} s); red dots are rejected ones.")
 
 
-def _over_time(df: pd.DataFrame, minutes: int | None) -> None:
+def _over_time(df: pd.DataFrame, minutes: int | None, tz) -> None:
     unit, label = bucket_for(minutes)
-    g = (df.assign(bucket=df["received"].dt.floor(unit).dt.tz_localize(None))
+    # local time (the chart shows the clock as read here, not UTC)
+    g = (df.assign(bucket=df["received"].dt.tz_convert(str(tz)).dt.floor(unit).dt.tz_localize(None))
          .groupby(["bucket", "outcome"], as_index=False).size())
     outcomes = [o for o in OUTCOME_COLOR if o in set(g["outcome"])]
     st.altair_chart(

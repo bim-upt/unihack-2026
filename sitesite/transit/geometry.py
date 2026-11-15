@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 from dataclasses import dataclass
 
 import numpy as np
@@ -106,14 +104,3 @@ class Shape:
         mid = self.coords[(self.cum > d0) & (self.cum < d1)]
         return [list(self.point_at(d0)), *mid.tolist(), list(self.point_at(d1))]
 
-def view_for(bounds: Bounds, width_px: int, height_px: int, max_zoom: int, pad: float = 0.1
-             ) -> tuple[tuple[float, float], int]:
-    """Center and the largest whole zoom (Web Mercator, 256 px tiles) that shows `bounds` in a frame of the
-    given size, with `pad` of the frame left free around it."""
-    (s, w), (n, e) = bounds
-    merc = lambda lat: math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))   # noqa: E731
-    dx = max(e - w, 1e-6) / 360.0
-    dy = max(merc(n) - merc(s), 1e-6) / (2 * math.pi)
-    usable_w, usable_h = width_px * (1 - 2 * pad), height_px * (1 - 2 * pad)
-    zoom = math.floor(min(math.log2(usable_w / (256 * dx)), math.log2(usable_h / (256 * dy))))
-    return ((s + n) / 2, (w + e) / 2), max(0, min(zoom, max_zoom))

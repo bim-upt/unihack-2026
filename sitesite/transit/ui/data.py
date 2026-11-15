@@ -16,11 +16,22 @@ from ..api import (
     get_headcount, Occupancy,
 )
 from ..api.errors import CONNECTION_LOST, transport_failed_within, user_message
+from ..config import Settings
 from ..gtfs import Feed
 from ..linking import RouteLink, match_routes
 from .history import HistoryStore
 
 T = TypeVar("T")
+
+# How long cached data is kept. A cache read by a page that updates every N s keeps its data N/2 s: each
+# update gets fresh data, and viewers (and parts of one page) at the same moment share one call. The intervals
+# come from config.Settings (the same values the sidebar shows), so they're set in one place.
+_S = Settings.from_env()
+CAMERA_S = 5          # the camera sends (and the server counts) a photo about every 5 s
+BUS_SETUP_S = 30      # a bus's devices and capture interval, users' names, passes: rarely change
+BUS_LIST_S = 60       # the list of buses
+REPORTS_S = 30        # a line's reports (the Map page's Reports tab)
+DEVICE_LIST_S = 300   # the devices of every bus, the pass catalog: change almost never
 LINK_SAMPLES_PER_BUS = 30
 
 
@@ -104,17 +115,17 @@ def route_link(gtfs_key: str, feed: Feed) -> tuple[RouteLink, str | None]:
 
 # ---------------------------------------------------------------- map and bus panel
 # ttl under the 1 s update period: every update gets fresh positions
-@st.cache_resource(ttl=0.5, show_spinner=False)
+@st.cache_resource(ttl=_S.live_refresh_s / 2, show_spinner=False)
 def route_positions(api_route_id: int):
     return _safe(lambda: get_route_positions(api_client(), api_route_id))
 
 
-@st.cache_resource(ttl=30, show_spinner=False)
+@st.cache_resource(ttl=REPORTS_S, show_spinner=False)
 def reports(line: str):
     return _safe(lambda: list_reports(api_client(), line=line))
 
 
-@st.cache_resource(ttl=60, show_spinner=False)
+@st.cache_resource(ttl=BUS_LIST_S, show_spinner=False)
 def buses():
     return _safe(lambda: list_buses(api_client()))
 
@@ -132,13 +143,13 @@ def history(bus_ids, start: datetime, max_age_s: float):
     return _history_store().get(api_client(), tuple(bus_ids), start, max_age_s)
 
 
-@st.cache_resource(ttl=5, show_spinner=False)
+@st.cache_resource(ttl=CAMERA_S, show_spinner=False)
 def _occupancy(bus_id: int):
     """Passengers: changes only when a ride is confirmed or ends, so every 5 s is enough."""
     return _safe(lambda: get_occupancy(api_client(), bus_id))
 
 
-@st.cache_resource(ttl=5, show_spinner=False)
+@st.cache_resource(ttl=CAMERA_S, show_spinner=False)
 def _headcount(bus_id: int):
     return _safe(lambda: get_headcount(api_client(), bus_id))
 
@@ -156,7 +167,7 @@ def headcount(bus_id: int):
     return replace(hc, paid_passengers=paid, without_ticket=missing), err or oerr
 
 
-@st.cache_resource(ttl=30, show_spinner=False)
+@st.cache_resource(ttl=BUS_SETUP_S, show_spinner=False)
 def _bus_setup(bus_id: int):
     return get_bus_setup(api_client(), bus_id)
 
@@ -178,7 +189,7 @@ def bus_snapshot(bus_id: int, history_limit: int, *, photo_every_s: float = 5.0)
         slot = int(time.time() // max(every_s, 0.5))
         # position and trail from the shared history (only new rows are fetched, about once a second); the
         # position is the newest one with GPS, so no separate /position call is needed
-        rows, herr = history([bus_id], datetime.now(timezone.utc) - BUS_HISTORY_WINDOW, max_age_s=0.8)[bus_id]
+        rows, herr = history([bus_id], datetime.now(timezone.utc) - BUS_HISTORY_WINDOW, max_age_s=_S.live_refresh_s * 0.8)[bus_id]
         position = next((t for t in rows if t.latlon), rows[0] if rows else None)
         # passengers from the headcount call (it also gives the camera's count); an older server without it:
         # the occupancy call instead
@@ -194,27 +205,27 @@ def bus_snapshot(bus_id: int, history_limit: int, *, photo_every_s: float = 5.0)
 
 
 # ---------------------------------------------------------------- devices page
-@st.cache_resource(ttl=300, show_spinner="Loading the device list...")
+@st.cache_resource(ttl=DEVICE_LIST_S, show_spinner="Loading the device list...")
 def fleet_devices(bus_ids: tuple[int, ...]):
     """bus id -> (devices, error). The API has no list of all devices, so this is one call per bus
     (in parallel); devices rarely change, so it is kept for 5 minutes."""
     return fetch_many(lambda bid: list_bus_devices(api_client(), bid), bus_ids)
 
 
-@st.cache_resource(ttl=5, show_spinner=False)
+@st.cache_resource(ttl=min(_S.devices_list_refresh_s, _S.fleet_refresh_s) / 2, show_spinner=False)
 def latest_telemetry():
     """Newest message of every bus: one call."""
     return _safe(lambda: list_latest_telemetry(api_client()))
 
 
-@st.cache_resource(ttl=10, show_spinner=False)
+@st.cache_resource(ttl=_S.fleet_refresh_s / 2, show_spinner=False)
 def latest_frames(bus_ids: tuple[int, ...]):
     """bus id -> (its newest photo's metadata (time, sequence; no image), error), one call per bus, in parallel.
     Used by the Fleet page to tell cameras that went quiet."""
     return fetch_many(lambda bid: list_frames(api_client(), bid, limit=1), bus_ids)
 
 
-@st.cache_resource(ttl=60, show_spinner=False)
+@st.cache_resource(ttl=BUS_SETUP_S, show_spinner=False)
 def capture_interval(bus_id: int):
     return _safe(lambda: get_capture_interval(api_client(), bus_id))
 
@@ -227,43 +238,43 @@ LIST_LIMIT = 1000   # the most a list call gives
 USERS_PAGE = 50   # the Users page loads this many, and this many more on "Show more"
 
 
-@st.cache_resource(ttl=5, max_entries=20, show_spinner=False)
+@st.cache_resource(ttl=_S.devices_list_refresh_s / 2, max_entries=20, show_spinner=False)
 def users(limit: int = USERS_PAGE, tier: str | None = None):
     """The newest `limit` users (of a tier), one call: the page asks for more as you click "Show more"."""
     return _safe(lambda: list_records(api_client(), "users", limit=min(limit, LIST_LIMIT), tier=tier))
 
 
-@st.cache_resource(ttl=30, show_spinner=False)
+@st.cache_resource(ttl=BUS_SETUP_S, show_spinner=False)
 def users_by_id(user_ids: tuple[str, ...]):
     """user id -> (user, error) for just these people, in parallel."""
     return fetch_many(lambda uid: get_record(api_client(), "user", user_id=uid), user_ids)
 
 
-@st.cache_resource(ttl=3, show_spinner=False)
+@st.cache_resource(ttl=_S.users_refresh_s / 2, show_spinner=False)
 def user(user_id: str):
     return _safe(lambda: get_record(api_client(), "user", user_id=user_id))
 
 
-@st.cache_resource(ttl=3, show_spinner=False)
+@st.cache_resource(ttl=_S.users_refresh_s / 2, show_spinner=False)
 def user_activity(user_id: str):
     """name -> (records, error) for the user's rides, charges, trips, passes and sightings, in parallel."""
     return fetch_many(lambda name: list_records(api_client(), name, user_id=user_id, limit=LIST_LIMIT), USER_ACTIVITY)
 
 
-@st.cache_resource(ttl=3, show_spinner=False)
+@st.cache_resource(ttl=_S.users_refresh_s / 2, show_spinner=False)
 def ride(session_id: str):
     return _safe(lambda: get_record(api_client(), "ride", session_id=session_id))
 
 
 # ---------------------------------------------------------------- money page
-@st.cache_resource(ttl=5, max_entries=20, show_spinner=False)   # under the 10 s update; no spinner flashing
+@st.cache_resource(ttl=_S.money_refresh_s / 2, max_entries=20, show_spinner=False)   # no spinner flashing
 def charges(start_iso: str | None, end_iso: str | None):
     """Every charge started in [start, end). from/to go to the server (it filters once that is built); the
     money page filters the dates again, so the numbers are right either way."""
     return _safe(lambda: list_all_records(api_client(), "charges", start=start_iso, end=end_iso))
 
 
-@st.cache_resource(ttl=300, show_spinner=False)
+@st.cache_resource(ttl=DEVICE_LIST_S, show_spinner=False)
 def pass_catalog():
     return _safe(lambda: list_records(api_client(), "pass_catalog"))
 
@@ -273,16 +284,16 @@ def recent_history(bus_ids: tuple[int, ...], start_iso: str):
     """bus id -> (positions received since `start_iso`, newest first; error), from the shared store: only what's
     new since the last update is downloaded."""
     start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-    return history(bus_ids, start, max_age_s=20)
+    return history(bus_ids, start, max_age_s=min(_S.health_refresh_s, _S.sightings_refresh_s) / 2)
 
 
-@st.cache_resource(ttl=20, show_spinner=False)
+@st.cache_resource(ttl=_S.health_refresh_s / 2, show_spinner=False)
 def all_reports():
     return _safe(lambda: list_reports(api_client()))
 
 
 # ---------------------------------------------------------------- sightings page
-@st.cache_resource(ttl=20, show_spinner=False)
+@st.cache_resource(ttl=_S.sightings_refresh_s / 2, show_spinner=False)
 def sightings_all():
     """Every sighting the server kept (it keeps the newest 20000): newest first, read 1000 at a time. There is
     no date filter on /sightings, so the page cuts the window itself."""
@@ -290,24 +301,24 @@ def sightings_all():
 
 
 # ---------------------------------------------------------------- inspector page
-@st.cache_resource(ttl=5, show_spinner=False)
+@st.cache_resource(ttl=_S.inspector_refresh_s / 2, show_spinner=False)
 def bus_rides(bus_id: int):
     return _safe(lambda: list_all_records(api_client(), "rides", bus_id=bus_id, max_pages=2))
 
 
-@st.cache_resource(ttl=5, show_spinner=False)
+@st.cache_resource(ttl=_S.inspector_refresh_s / 2, show_spinner=False)
 def bus_sightings(bus_id: int):
     """The newest sightings of this bus's beacon (newest first)."""
     return _safe(lambda: list_records(api_client(), "sightings", bus_id=bus_id, limit=1000))
 
 
-@st.cache_resource(ttl=5, show_spinner=False)
+@st.cache_resource(ttl=_S.inspector_refresh_s / 2, show_spinner=False)
 def charges_of(user_ids: tuple[str, ...]):
     """user id -> (their charges, error): only the people being looked at, in parallel."""
     return fetch_many(lambda uid: list_records(api_client(), "charges", user_id=uid, limit=LIST_LIMIT), user_ids)
 
 
-@st.cache_resource(ttl=30, show_spinner=False)
+@st.cache_resource(ttl=BUS_SETUP_S, show_spinner=False)
 def all_passes():
     return _safe(lambda: list_all_records(api_client(), "passes"))
 

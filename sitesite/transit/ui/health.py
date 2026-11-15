@@ -20,7 +20,6 @@ from streamlit_folium import st_folium
 
 from ..api.models import Telemetry
 from ..config import Bounds, Settings
-from ..geometry import view_for
 from ..gtfs import Feed
 from ..mapview.layers import build_base_map
 from ..providers import ScheduleProvider
@@ -115,9 +114,9 @@ def traffic_segments(history: list[Telemetry]) -> list[tuple[list[float], list[f
 
 # ---------------------------------------------------------------- page
 def render_health_view(feed: Feed, settings: Settings, area: Bounds, gtfs_of: Callable[[int | None], str | None],
-                       map_width_px: int, *, live: bool) -> None:
+                       *, live: bool) -> None:
     st.title("Line health")
-    _fragment(settings.health_refresh_s if live else None)(feed, settings, area, gtfs_of, map_width_px)
+    _fragment(settings.health_refresh_s if live else None)(feed, settings, area, gtfs_of)
 
 
 @functools.lru_cache(maxsize=None)
@@ -125,8 +124,7 @@ def _fragment(every_s: float | None):
     return st.fragment(run_every=every_s)(_health)
 
 
-def _health(feed: Feed, settings: Settings, area: Bounds, gtfs_of: Callable[[int | None], str | None],
-            map_width_px: int) -> None:
+def _health(feed: Feed, settings: Settings, area: Bounds, gtfs_of: Callable[[int | None], str | None]) -> None:
     data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     ss = st.session_state
     # controls and counts in a narrow column left of the map, so the map starts right under the title
@@ -190,7 +188,7 @@ def _health(feed: Feed, settings: Settings, area: Bounds, gtfs_of: Callable[[int
     with col_side:
         selected = _line_table(lines, selected)
     with col_map:
-        _traffic_map(feed, settings, area, by_line, selected, map_width_px)
+        _traffic_map(feed, settings, area, by_line, selected)
         st.markdown(" &nbsp; ".join(f"<span style='color:{c}'>━━</span> {label}" for _, c, label in SPEED_BINS),
                     unsafe_allow_html=True)
         st.caption(f"Where the buses drove in the last {window}, coloured by their speed · updated "
@@ -238,8 +236,8 @@ def _line_table(lines: list[LineHealth], selected: str | None) -> str | None:
 
 
 def _traffic_map(feed: Feed, settings: Settings, area: Bounds, by_line: dict[str, dict[int, list[Telemetry]]],
-                 selected: str | None, map_width_px: int) -> None:
-    base = build_base_map(settings, area, {})
+                 selected: str | None) -> None:
+    base = build_base_map(settings, area, {}, focus=feed.route_bounds(selected) if selected else None)
     fg = folium.FeatureGroup(name="traffic")
     if selected:
         for sid in feed.shapes_by_route.get(selected, ()):   # the line's path, faint, under the traffic
@@ -254,11 +252,5 @@ def _traffic_map(feed: Feed, settings: Settings, area: Bounds, by_line: dict[str
                 folium.PolyLine([a, b], color=speed_colour(kmh), weight=5, opacity=0.9,
                                 tooltip=f"Line {line} · bus {bid} · {kmh:.0f} km/h"
                                         + (f" · {when.astimezone(settings.tz):%H:%M}" if when else "")).add_to(fg)
-    box = feed.route_bounds(selected) if selected else None
-    if box:
-        center, zoom = view_for(box, map_width_px, settings.map_height, settings.max_zoom)
-    else:
-        (s, w), (n, e) = area
-        center, zoom = ((s + n) / 2, (w + e) / 2), 0
     st_folium(base, feature_group_to_add=fg, key="health_map", height=settings.map_height,
-              use_container_width=True, center=center, zoom=zoom, returned_objects=[])
+              use_container_width=True, returned_objects=[])

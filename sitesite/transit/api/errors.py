@@ -43,10 +43,30 @@ def transport_failed_within(seconds: float) -> bool:
     return time.monotonic() - _last_transport_failure < seconds
 
 
+LOG_EVERY_S = 30.0   # the same failure is logged at most this often (a live page would repeat it every second)
+_last_logged: dict[str, tuple[float, int]] = {}
+
+
+def _log_throttled(exc: BaseException) -> None:
+    """Log a failed call, but the same failure (type and message) only once per LOG_EVERY_S, with the number
+    of repeats that were left out since. A different failure is logged straight away."""
+    key = f"{type(exc).__name__}: {exc}"[:300]
+    now = time.monotonic()
+    last, skipped = _last_logged.get(key, (0.0, 0))
+    if now - last < LOG_EVERY_S:
+        _last_logged[key] = (last, skipped + 1)
+        return
+    _last_logged[key] = (now, 0)
+    if len(_last_logged) > 200:   # forget old ones
+        for k in sorted(_last_logged, key=lambda k: _last_logged[k][0])[:100]:
+            del _last_logged[k]
+    log.warning("API call failed: %s%s", key, f" (and {skipped} more times since the last report)" if skipped else "")
+
+
 def user_message(exc: BaseException) -> str:
     """What the page says about a failed call: plain words, no technical detail. The detail goes to the
     log (the terminal Streamlit runs in)."""
-    log.warning("API call failed: %s: %s", type(exc).__name__, exc)
+    _log_throttled(exc)
     if isinstance(exc, TransportError):
         note_transport_failure()
         return CONNECTION_LOST

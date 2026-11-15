@@ -148,9 +148,11 @@ def _tile_options(settings: Settings, box: list) -> dict:
     return opts
 
 
-def build_base_map(settings: Settings, area: Bounds, stops_payload: dict, *, highlight_px: int = 3) -> folium.Map:
+def build_base_map(settings: Settings, area: Bounds, stops_payload: dict, *, highlight_px: int = 3,
+                   focus: Bounds | None = None) -> folium.Map:
     """`stops_payload`: the stops hover shows for a line ({} = none); `highlight_px`: how much a hovered line
-    thickens (0 = it doesn't). The "Lines here" box is shown either way."""
+    thickens (0 = it doesn't). The "Lines here" box is shown either way. `focus`: a box (a line) the map opens
+    fitted to, worked out in the browser at the map's real size."""
     (s, w), (n, e) = area
     box = [[s, w], [n, e]]
     m = folium.Map(
@@ -169,6 +171,6 @@ def build_base_map(settings: Settings, area: Bounds, stops_payload: dict, *, hig
         **_tile_options(settings, box),
     ).add_to(m)
     m.fit_bounds(box)
-    LockToArea(area).add_to(m)
+    LockToArea(area, focus).add_to(m)
     HoverInfo(stops_payload, settings.tile_filter, highlight_px=highlight_px).add_to(m)
     return m
