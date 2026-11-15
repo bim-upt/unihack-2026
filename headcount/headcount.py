@@ -41,8 +41,8 @@ def _to_bgr(image) -> np.ndarray:
 
 
 # the boxes drawn on the picture: thin and see-through, so the people inside stay easy to look at
-BOX_COLOR = (0, 255, 0)  # BGR: green
-BOX_ALPHA = 0.45         # 0 = invisible, 1 = solid
+BOX_COLOR = (255, 0, 0)  # BGR: blue
+BOX_ALPHA = 0.75         # 0 = invisible, 1 = solid
 JPEG_QUALITY = 85
 
 
@@ -60,10 +60,10 @@ def count_people(image, model_path: str = MODEL_PATH, conf: float = CONF) -> int
 
 
 def draw_boxes(frame: np.ndarray, boxes: np.ndarray) -> np.ndarray:
-    """A copy of the photo with a thin, see-through box around each person (1 px on a photo up to ~1000 px wide,
-    a little thicker on bigger ones, so it stays visible but never hides the person)."""
+    """A copy of the photo with a box around each person: ~3 px on a photo up to ~1000 px wide (thicker on
+    bigger ones, so it looks the same), a little see-through so it never hides the person."""
     overlay = frame.copy()
-    thickness = max(1, round(max(frame.shape[:2]) / 1000))
+    thickness = max(3, round(max(frame.shape[:2]) / 350))
     for x1, y1, x2, y2 in boxes.astype(int):
         cv2.rectangle(overlay, (x1, y1), (x2, y2), BOX_COLOR, thickness, lineType=cv2.LINE_AA)
     return cv2.addWeighted(overlay, BOX_ALPHA, frame, 1 - BOX_ALPHA, 0)
