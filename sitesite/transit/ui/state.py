@@ -22,6 +22,7 @@ K_TRACKER = "heading_tracker"
 K_LINE_TABLE = "line_table"
 K_LINE_TABLE_IDS = "line_table_ids"
 K_LIVE_UPDATES = "live_updates"
+K_BUS_TAB = "bus_tab_choice"   # the bus panel's open tab, kept when another bus is picked
 K_VIEW = "view"                 # "map" | "fleet" | "devices" | "users"
 K_SIM_ON, K_SIM_HOUR, K_SIM_MIN, K_SIM_SET_AT = "sim_on", "sim_hour", "sim_min", "sim_set_at"   # "what if" time
 K_PENDING_VIEW = "pending_view"          # set by a click elsewhere, applied on the next full run
@@ -111,6 +112,12 @@ def on_line_table_select() -> None:
     ids = ss.get(K_LINE_TABLE_IDS) or []
     if rows and 0 <= rows[0] < len(ids):
         ss[K_PENDING] = ids[rows[0]]   # applied by init_state on the full rerun (the sidebar shows the line)
+
+
+def remember_bus_tab(tab_key: str) -> None:
+    label = st.session_state.get(tab_key)
+    if label:
+        st.session_state[K_BUS_TAB] = label
 
 
 # ---------------------------------------------------------------- map clicks

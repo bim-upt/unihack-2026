@@ -149,15 +149,17 @@ def _tile_options(settings: Settings, box: list) -> dict:
 
 
 def build_base_map(settings: Settings, area: Bounds, stops_payload: dict, *, highlight_px: int = 3,
-                   focus: Bounds | None = None) -> folium.Map:
+                   focus: Bounds | None = None,
+                   view: tuple[tuple[float, float], float] | None = None) -> folium.Map:
     """`stops_payload`: the stops hover shows for a line ({} = none); `highlight_px`: how much a hovered line
     thickens (0 = it doesn't). The "Lines here" box is shown either way. `focus`: a box (a line) the map opens
-    fitted to, worked out in the browser at the map's real size."""
+    fitted to, worked out in the browser at the map's real size. `view`: ((lat, lon), zoom) the map opens at
+    instead (where the user was), with no fitting."""
     (s, w), (n, e) = area
     box = [[s, w], [n, e]]
     m = folium.Map(
-        location=((s + n) / 2, (w + e) / 2),
-        zoom_start=12,
+        location=view[0] if view else ((s + n) / 2, (w + e) / 2),
+        zoom_start=view[1] if view else 12,
         tiles=None,
         prefer_canvas=True,   # lines and stops drawn on one GPU-backed canvas instead of thousands of SVG nodes
         max_bounds=True, min_lat=s, max_lat=n, min_lon=w, max_lon=e,
@@ -170,7 +172,8 @@ def build_base_map(settings: Settings, area: Bounds, stops_payload: dict, *, hig
         control=False,
         **_tile_options(settings, box),
     ).add_to(m)
-    m.fit_bounds(box)
-    LockToArea(area, focus).add_to(m)
+    if not view:
+        m.fit_bounds(box)
+    LockToArea(area, None if view else focus).add_to(m)
     HoverInfo(stops_payload, settings.tile_filter, highlight_px=highlight_px).add_to(m)
     return m

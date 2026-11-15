@@ -12,9 +12,12 @@ import streamlit as st
 from ..api import combine_device_statuses
 from ..api.models import DeviceStatus
 from . import data
-from .info_panel import fmt_age, fmt_time, fmt_uptime, kv_table
+from .info_panel import fmt_age, fmt_time, fmt_uptime, kv_table, updated_caption
 
 K_DEVICE_TABLE = "device_table"
+K_SEARCH, K_ROLE, K_STATUS = "device_search", "device_role", "device_status"
+ROLES = ("all", "beacon", "camera")
+STATUSES = ("all", "online", "offline", "never seen", "unknown")   # unknown: a camera not checked here
 K_SELECTED_DEVICE = "selected_device"   # (device_id, bus_id) shown in the card
 K_LAST_PICK = "device_last_pick"       # the last row clicked, so a click is told apart from a refresh
 ROLE_ICONS = {"beacon": "📡", "camera": "📷"}
@@ -147,7 +150,7 @@ def render_devices_view(line_of: Callable[[int | None], str], tz: ZoneInfo, onli
     # list on the left, the picked device beside it: visible at once, also when arriving from the Fleet page
     col_list, col_card = st.columns([3, 2], gap="medium")
     with col_list:
-        list_part(line_of, online_s)
+        list_part(line_of, online_s, tz)
     with col_card:
         card_part(tz, online_s, photo_every_s)
 
@@ -173,7 +176,7 @@ def _with_selected_camera(statuses: list[DeviceStatus]) -> list[DeviceStatus]:
     return [fresh.get(ds.device.device_id, ds) if ds.device.is_camera and _is_selected(ds) else ds for ds in statuses]
 
 
-def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
+def _device_list(line_of: Callable[[int | None], str], online_s: float, tz: ZoneInfo) -> None:
     data.require_server()   # server gone: the whole app shows the 'connection lost' banner
     try:
         statuses, route_of, notes = fleet_statuses()
@@ -197,6 +200,7 @@ def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
     c4.metric("Beacons offline", len(beacons) - beacons.count("online"))
     st.caption(f"Online = the server heard from it in the last {online_s:.0f} s. A camera's status is shown "
                "for the selected device (checking every camera here would take a call per bus).")
+    updated_caption(tz)
     for n in notes:
         st.caption(n)
     if not statuses:
@@ -204,16 +208,33 @@ def _device_list(line_of: Callable[[int | None], str], online_s: float) -> None:
         return
 
     ss = st.session_state
+    rows = [{
+        "Device": ds.device.device_id,
+        "Role": ds.device.role or "—",
+        "Bus": ds.device.bus_id,
+        "Line": line_of(route_of.get(ds.device.bus_id)),
+        "Status": st_,
+        "Last seen": fmt_age(a) if ok else "—",
+    } for ds, a, st_, ok in zip(statuses, ages, states, shown)]
+
+    # search and filters (they only narrow what's shown: no extra calls)
+    f1, f2, f3 = st.columns([3, 2, 2], vertical_alignment="bottom")
+    query = f1.text_input("Search", key=K_SEARCH, placeholder="device, bus or line").strip().casefold()
+    role = f2.selectbox("Role", ROLES, key=K_ROLE)
+    status = f3.selectbox("Status", STATUSES, key=K_STATUS)
+    keep = [i for i, r in enumerate(rows)
+            if (role == "all" or r["Role"] == role)
+            and (status == "all" or r["Status"] == ("—" if status == "unknown" else status))
+            and (not query or any(query in str(r[k]).casefold() for k in ("Device", "Bus", "Line")))]
+    if not keep:
+        st.info("No device matches.")
+        return
+    statuses = [statuses[i] for i in keep]
+    ids = [(ds.device.device_id, ds.device.bus_id) for ds in statuses]
     event = st.dataframe(
-        pd.DataFrame([{
-            "Device": ds.device.device_id,
-            "Role": ds.device.role or "—",
-            "Bus": ds.device.bus_id,
-            "Line": line_of(route_of.get(ds.device.bus_id)),
-            "Status": s,
-            "Last seen": fmt_age(a) if ok else "—",
-        } for ds, a, s, ok in zip(statuses, ages, states, shown)]),
-        key=K_DEVICE_TABLE,
+        pd.DataFrame([rows[i] for i in keep]),
+        # the key follows the rows shown: a filter or a refresh that moves rows can't select another device
+        key=f"{K_DEVICE_TABLE}_{hash(tuple(ids))}",
         on_select="rerun",
         selection_mode=["single-row", "single-cell"],   # a click on any cell picks its row
         hide_index=True,

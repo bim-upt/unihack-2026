@@ -69,11 +69,13 @@ def _frame(records: list[dict], tz: ZoneInfo, start: datetime | None, end: datet
 def render_money_view(tz: ZoneInfo, *, live: bool, every_s: float) -> None:
     st.title("Money")
     c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
-    choice = c1.segmented_control("Period", PERIODS, key=K_PERIOD, default="7 days") or "7 days"
+    st.session_state.setdefault(K_PERIOD, "7 days")
+    choice = c1.segmented_control("Period", PERIODS, key=K_PERIOD) or "7 days"
     custom = None
     if choice == "Custom":
         today = datetime.now(tz).date()
-        picked = c2.date_input("From – to", value=(today - timedelta(days=6), today), key=K_RANGE)
+        st.session_state.setdefault(K_RANGE, (today - timedelta(days=6), today))
+        picked = c2.date_input("From – to", key=K_RANGE)
         custom = tuple(picked) if isinstance(picked, (list, tuple)) and len(picked) == 2 else None
     _fragment(every_s if live else None)(tz, choice, custom)
 

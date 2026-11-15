@@ -25,7 +25,8 @@ from transit.ui.info_panel import (
     render_bus_history, render_live_bus, render_network, render_route_header, render_schedule_vehicle,
 )
 from transit.ui.line_tabs import render_bus_list, render_line_picker, render_line_tabs
-from transit.ui.sidebar import render_sidebar
+from transit.ui import nav
+from transit.ui.sidebar import VIEW_LABELS, render_sidebar
 from transit.ui.users import render_users_view
 from transit.ui.fleet import render_fleet_view
 from transit.ui.money import render_money_view
@@ -33,7 +34,7 @@ from transit.ui.health import render_health_view
 from transit.ui.sightings import render_sightings_view
 from transit.ui.inspector import render_inspector_view
 
-st.set_page_config(page_title="Transit Admin", layout="wide")
+st.set_page_config(page_title="Transit Admin", layout="wide", initial_sidebar_state="expanded")
 SETTINGS = Settings.from_env()
 
 
@@ -54,6 +55,16 @@ def get_hover_payload(gtfs_dir: str, _feed: Feed) -> dict:
 PAGE_CSS = """<style>
 [data-stale="true"] { opacity: 1 !important; transition: none !important; }
 .stDataFrame .dvn-scroller { overscroll-behavior: contain; }
+/* hide Streamlit's own chrome: the coloured line on top, the menu, Deploy, and the "running" figure that would
+   blink on every live update. The sidebar's open/close arrow stays. */
+[data-testid="stDecoration"], [data-testid="stMainMenu"], #MainMenu, [data-testid="stAppDeployButton"],
+[data-testid="stStatusWidget"], [data-testid="stToolbarActions"] { display: none !important; }
+header[data-testid="stHeader"] { background: transparent; }
+/* dropdowns show up to 70% of the window before scrolling (Streamlit's own limit is 300 px: 7 items), so the
+   View list never scrolls */
+[data-testid="stSelectboxVirtualDropdown"] { max-height: 70vh !important; }
+/* the invisible Back / Forward helper takes no room */
+.st-key-nav_listener { position: absolute !important; height: 0 !important; overflow: hidden; margin: 0; }
 </style>"""
 
 
@@ -62,6 +73,11 @@ def main() -> None:
     gtfs_key = str(SETTINGS.gtfs_dir)
     feed = get_feed(gtfs_key, SETTINGS.simplify_m)
     state.init_state(SETTINGS.vehicle_source)
+    nav.sync(VIEW_LABELS, feed.routes)   # browser Back / Forward, refresh, links: the place lives in the URL
+    previous_page = st.session_state.get("_page_shown")
+    st.session_state["_page_shown"] = st.session_state.get(state.K_VIEW)
+    if st.session_state["_page_shown"] == "map" and previous_page != "map":
+        st.session_state["map_entering"] = True   # the map is drawn anew: start it where the user left it
     controls = render_sidebar(feed, SETTINGS)
     if not data.server_up_now():
         data.render_connection_lost()   # one banner, /health every second, no other calls until it's back
@@ -130,6 +146,24 @@ def main() -> None:
     (_live_map_view if live_part else _map_view)(gtfs_key, feed, link, link_err, controls)
 
 
+def _note_map_view(result: dict | None) -> None:
+    """Where the user has the map (center, zoom), as the map reports it."""
+    c, z = (result or {}).get("center"), (result or {}).get("zoom")
+    if c and z:
+        st.session_state["map_view_now"] = ((c["lat"], c["lng"]), z)
+
+
+def _map_start_view(base_key: str):
+    """The view the map is drawn with. The map is rebuilt when its base changes (another line) or when the page is
+    entered; it then starts where the user was (no reset, no jump to the line). In between it's left alone: the
+    same start view keeps the base unchanged, so panning never rebuilds it. A fresh page: the whole area."""
+    ss = st.session_state
+    if ss.pop("map_entering", False) or ss.get("map_base_key") != base_key:
+        ss["map_base_key"] = base_key
+        ss["map_base_view"] = ss.get("map_view_now")
+    return ss.get("map_base_view")
+
+
 def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -> None:
     """Map and side panel. With live updates on, this part alone re-runs every few seconds: the sidebar and
     the map's base layer stay as they are, only the buses, the trail and the panel are redrawn."""
@@ -196,7 +230,7 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
     hover = get_hover_payload(gtfs_key, feed)
     # with a line open the map opens fitted to it (in the browser, at the map's real width)
     base_map = build_base_map(SETTINGS, area, {route.route_id: hover.get(route.route_id, [])} if route else hover,
-                              focus=feed.route_bounds(route.route_id) if route else None)
+                              view=_map_start_view(route.route_id if route else ""))
     static.add_to(base_map)
     # left: the map with the line's reference tabs under it; right: the line, its buses, the picked bus
     col_map, col_side = st.columns([3, 2], gap="medium")
@@ -207,13 +241,14 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
             key="map",
             height=SETTINGS.map_height,
             use_container_width=True,
-            returned_objects=["last_active_drawing", "last_object_clicked_tooltip"],
+            returned_objects=["last_active_drawing", "last_object_clicked_tooltip", "center", "zoom"],
         )
 
         if route:
             render_line_tabs(feed, route, link, live=live, positions=positions,
                              scheduled=scheduled, now=controls.now, tz=SETTINGS.tz)
 
+    _note_map_view(result)
     state.handle_map_result(result, sel_id, {v.vehicle_id for v in vehicles})
 
     with col_side:
@@ -228,6 +263,7 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                 live_count=len(positions) if live and positions is not None else None,
                 scheduled_count=len(scheduled),
                 notice=notice,
+                tz=SETTINGS.tz,
             )
             render_bus_list(feed, route, live, vehicles, positions, selected)
             if not selected:
@@ -243,7 +279,12 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                     info_fetched = (snap.info, None) if snap else (None, snap_err)
                     frame_fetched = (snap.frame, snap.errors.get("frame")) if snap else (None, snap_err)
                     devices_fetched = ((snap.devices, snap.errors), None) if snap else (None, snap_err)
-                    t_overview, t_devices, t_history = st.tabs(["Overview", "Devices", "History"])
+                    # the tab open for the last bus stays open for the next one
+                    tab_names = ["Overview", "Devices", "History"]
+                    remembered = st.session_state.get(state.K_BUS_TAB, "Overview")
+                    t_overview, t_devices, t_history = st.tabs(
+                        tab_names, key=f"bus_tabs_{bid}", default=remembered if remembered in tab_names else None,
+                        on_change=state.remember_bus_tab, args=(f"bus_tabs_{bid}",))
                     with t_overview:
                         render_live_bus(feed, route, bid, info_fetched, frame_fetched, SETTINGS.tz, upcoming=upcoming,
                                         headcount=snap.headcount if snap else None,

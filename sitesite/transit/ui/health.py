@@ -130,7 +130,7 @@ def _health(feed: Feed, settings: Settings, area: Bounds, gtfs_of: Callable[[int
     # controls and counts in a narrow column left of the map, so the map starts right under the title
     col_ctl, col_map, col_side = st.columns([1, 4, 3], gap="medium")
     with col_ctl:
-        window = st.radio("Window", list(WINDOWS), key=K_WINDOW, index=0)
+        window = st.radio("Window", list(WINDOWS), key=K_WINDOW)
         all_lines = st.toggle("Lines without live buses", key=K_ALL_LINES)
 
     now = datetime.now(timezone.utc)
@@ -141,7 +141,15 @@ def _health(feed: Feed, settings: Settings, area: Bounds, gtfs_of: Callable[[int
         st.error(f"Buses unavailable: {err}")
         return
     route_of = {b.bus_id: b.route_id for b in buses or []}
-    history = data.recent_history(tuple(sorted(route_of)), start.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    fetch = lambda: data.recent_history(tuple(sorted(route_of)), start.strftime("%Y-%m-%dT%H:%M:%SZ"))  # noqa: E731
+    if ss.get("health_loaded_window") != window:
+        # a window shown for the first time downloads every bus's positions for it (3 h: a few seconds); after
+        # that each update only fetches what's new, quickly, so no spinner then
+        with col_map, st.spinner(f"Loading every bus's positions for the last {window}…"):
+            history = fetch()
+        ss["health_loaded_window"] = window
+    else:
+        history = fetch()
     reports, rerr = data.all_reports()
 
     by_line: dict[str, dict[int, list[Telemetry]]] = {}

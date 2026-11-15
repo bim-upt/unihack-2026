@@ -18,23 +18,34 @@ class LockToArea(MacroElement):
   var focus = {{ this.focus_json }};   // a line to show whole: fitted once the map knows its real size
   var focused = false;
   var tries = 0;
-  // The smallest zoom at which the area covers the whole frame (inside=true): no grey around it. Applied when
-  // the map is ready, again after it gets its size (inside Streamlit it can start at 0x0), on every resize,
-  // and after every zoom or move: a zoom asked for below it (the page's own "zoom 0") is pulled back up.
+  var lastSize = null, settled = false;
+  // The smallest zoom at which the area covers the whole frame (inside=true): no grey around it. Only applied
+  // once the frame's size has SETTLED (the same on two checks 150 ms apart): a new map frame briefly has a
+  // temporary size, and a minimum worked out from that would wrongly zoom in and lose the view the map was
+  // opened at. Zooming in to the minimum keeps the current center (setZoom), never jumps to the area's middle.
   function lock() {
     var s = map.getSize();
     if (!s.x || !s.y) {
       if (tries++ < 50) setTimeout(lock, 100);
       return;
     }
+    if (!settled) {
+      if (!lastSize || lastSize.x !== s.x || lastSize.y !== s.y) {
+        lastSize = s;
+        if (tries++ < 50) setTimeout(lock, 150);
+        return;
+      }
+      settled = true;
+    }
     var z = map.getBoundsZoom(area, true);
-    if (map.getMinZoom() !== z) map.setMinZoom(z);
     if (focus && !focused) {
       focused = true;
+      map.setMinZoom(z);
       map.fitBounds(L.latLngBounds(focus), {padding: [24, 24], animate: false});
       return;   // the fit ends in a moveend, which runs lock() again
     }
-    if (map.getZoom() < z) map.setView(area.getCenter(), z, {animate: false});
+    if (map.getMinZoom() !== z) map.setMinZoom(z);
+    if (map.getZoom() < z) map.setZoom(z, {animate: false});
   }
   map.whenReady(function () { lock(); setTimeout(lock, 250); setTimeout(lock, 1000); });
   map.on("resize", lock);

@@ -104,6 +104,20 @@ def verdict(ride: dict | None, charge: dict | None, passes: list[PassCheck], now
     return "nothing"
 
 
+def stable_order(rows: list[dict], key: str, first_sort) -> list[dict]:
+    """Rows in a steady order while the page updates: the first time sorted (`first_sort`, problems first), after
+    that everyone keeps their place, new people are added at the end and people who left are dropped. So a row
+    never jumps while you're reading it."""
+    ss = st.session_state
+    by_uid = {r["_uid"]: r for r in rows}
+    if key not in ss:
+        ss[key] = [r["_uid"] for r in sorted(rows, key=first_sort)]
+    kept = [u for u in ss[key] if u in by_uid]
+    new = [r["_uid"] for r in sorted((r for r in rows if r["_uid"] not in set(kept)), key=first_sort)]
+    ss[key] = kept + new
+    return [by_uid[u] for u in ss[key]]
+
+
 def _pass_text(p: PassCheck, line: str) -> str:
     where = f"valid on {line}" if p.covers_line else f"not valid on {line}"
     when = f"until {p.until}" if p.valid_now else f"expired {p.until}"
@@ -119,10 +133,12 @@ def render_inspector_view(settings: Settings, line_of: Callable[[int | None], st
         return
     route_of = {b.bus_id: b.route_id for b in buses or []}
     c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
+    if st.session_state.get(K_BUS) not in route_of:   # e.g. a bus from a link that no longer exists
+        st.session_state[K_BUS] = None
     bus_id = c1.selectbox("Bus", sorted(route_of), key=K_BUS, index=None, placeholder="Pick the bus you're on",
                           format_func=lambda b: f"Bus {b} · line {line_of(route_of.get(b))}")
-    seen = c2.segmented_control("Phones that heard the bus in the last", list(SEEN_WINDOWS), key=K_SEEN,
-                                default="5 min") or "5 min"
+    st.session_state.setdefault(K_SEEN, "5 min")
+    seen = c2.segmented_control("Phones that heard the bus in the last", list(SEEN_WINDOWS), key=K_SEEN) or "5 min"
     if bus_id is None:
         st.caption("Pick a bus to see the people on it and whether each one has paid.")
         return
@@ -177,6 +193,7 @@ def _people(settings: Settings, bus_id: int, line: str, seen_min: int) -> None:
         u = who.get(uid, {})
         rows.append({
             "_level": level,
+            "_uid": uid,
             "Status": f"{LEVEL[level][0]} {label}",
             "Name": u.get("name") or ("(anonymous)" if u.get("tier") == "anonymous" else "—"),
             "Email": u.get("email") or "—",
@@ -190,7 +207,7 @@ def _people(settings: Settings, bus_id: int, line: str, seen_min: int) -> None:
         })
 
     order = {"fail": 0, "check": 1, "ok": 2}
-    rows.sort(key=lambda r: order[r["_level"]])
+    rows = stable_order(rows, f"insp_order_{bus_id}", first_sort=lambda r: order[r["_level"]])
     n = {lvl: sum(r["_level"] == lvl for r in rows) for lvl in order}
     hc, _herr = data.headcount(bus_id)   # the camera's count of people vs the passengers who paid
     camera = hc.people_counted if hc else None
@@ -210,11 +227,11 @@ def _people(settings: Settings, bus_id: int, line: str, seen_min: int) -> None:
         st.info(f"Nobody on bus {bus_id}: no open ride and no phone heard its beacon in the last {seen_min} min.")
         return
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows).drop(columns="_uid")
     levels = df.pop("_level")
     styled = df.style.apply(lambda r: [f"background-color: {LEVEL[levels[r.name]][2]}; color: #1a1a19"] * len(r),
                             axis=1)
     st.dataframe(styled, hide_index=True, width="stretch", height=(min(len(df), 12) + 1) * 35 + 18)
-    st.caption(f"Line {line}. Red first. Updated {now.astimezone(tz):%H:%M:%S}. People without a ride were found "
+    st.caption(f"Line {line}. Problems first when the bus is opened; after that rows stay put and newcomers are added at the end. Updated {now.astimezone(tz):%H:%M:%S}. People without a ride were found "
                f"by their phone hearing this bus in the last {seen_min} min. Passengers counts a group ride once "
                "per person paid for.")

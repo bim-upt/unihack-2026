@@ -39,6 +39,12 @@ def fmt_time(dt: datetime | None, tz: ZoneInfo) -> str:
     return dt.astimezone(tz).strftime("%H:%M:%S") if dt else "—"
 
 
+def updated_caption(tz: ZoneInfo, every_s: float | None = None, extra: str = "") -> None:
+    """The same "last updated" line on every page."""
+    when = datetime.now(timezone.utc).astimezone(tz).strftime("%H:%M:%S")
+    st.caption(" · ".join(x for x in (f"Updated {when}", f"every {every_s:g} s" if every_s else "", extra) if x))
+
+
 def kv_table(rows: dict) -> None:
     st.table(pd.DataFrame({"Value": [str(v) for v in rows.values()]}, index=list(rows.keys())))
 
@@ -89,10 +95,12 @@ def render_network(n_routes: int, n_services: int, n_buses: int | None, api_err:
         st.caption(f"API: {api_err}")
 
 
-def render_route_header(route: Route, *, live_count: int | None, scheduled_count: int, notice: str | None) -> None:
+def render_route_header(route: Route, *, live_count: int | None, scheduled_count: int, notice: str | None,
+                        tz: ZoneInfo | None = None) -> None:
     st.subheader(f"Line {route.short_name}")
     live = "—" if live_count is None else live_count
-    st.caption(f"{route.mode_name} · {route.long_name}  \n**{live}** live · **{scheduled_count}** scheduled now")
+    when = f" · updated {datetime.now(timezone.utc).astimezone(tz):%H:%M:%S}" if tz else ""
+    st.caption(f"{route.mode_name} · {route.long_name}  \n**{live}** live · **{scheduled_count}** scheduled now{when}")
     if notice:
         st.warning(notice)
 

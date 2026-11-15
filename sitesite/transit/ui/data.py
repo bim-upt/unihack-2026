@@ -70,6 +70,8 @@ def require_server() -> None:
     then shows the 'connection lost' banner instead of making calls that would all fail."""
     if not server_up_now():
         st.rerun(scope="app")
+    from . import nav   # every self-updating part calls this: a pick made inside one goes to the URL too
+    nav.write()
 
 
 def render_connection_lost() -> None:

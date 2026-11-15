@@ -2,3 +2,5 @@
 # Uncaught errors: the browser shows only a short generic message, no exception text or traceback
 # (the full traceback is still printed in the terminal). Use "full" while developing.
 showErrorDetails = "none"
+# Streamlit's own toolbar: no Deploy button, no developer menu (the page's look is ours)
+toolbarMode = "minimal"

@@ -10,8 +10,13 @@ from ..gtfs import Feed
 from . import data, state
 
 SOURCE_LABELS = {"live": "Live (API)", "schedule": "Schedule (GTFS)"}
-VIEW_LABELS = {"map": "🗺️ Map", "fleet": "🚍 Fleet", "health": "🚦 Line health", "devices": "📡 Devices",
-               "sightings": "📶 Sightings", "inspector": "🎫 Inspector", "users": "👤 Users", "money": "💰 Money"}
+# the pages, grouped (the group is shown in front of the name in the View dropdown)
+VIEW_LABELS = {
+    "map": "Live · 🗺️ Map", "fleet": "Live · 🚍 Fleet", "health": "Live · 🚦 Line health",
+    "devices": "Devices · 📡 Devices", "sightings": "Devices · 📶 Sightings",
+    "inspector": "People · 🎫 Inspector", "users": "People · 👤 Users",
+    "money": "Money · 💰 Money",
+}
 
 
 @dataclass(frozen=True)
@@ -25,7 +30,7 @@ class Controls:
 
 def render_sidebar(feed: Feed, settings: Settings) -> Controls:
     with st.sidebar:
-        st.radio("View", list(VIEW_LABELS), key=state.K_VIEW, format_func=VIEW_LABELS.get, horizontal=True)
+        st.selectbox("View", list(VIEW_LABELS), key=state.K_VIEW, format_func=VIEW_LABELS.get)
         view = state.view()
         if view != "map":
             label = {

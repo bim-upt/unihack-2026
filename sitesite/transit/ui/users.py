@@ -10,7 +10,7 @@ import streamlit as st
 
 from . import data
 from .devices import picked_row
-from .info_panel import fmt_age, kv_table
+from .info_panel import fmt_age, kv_table, updated_caption
 
 K_SEARCH, K_TIER, K_RIDING = "user_search", "user_tier", "user_riding_only"
 K_SELECTED_USER, K_LAST_USER_PICK = "selected_user", "user_last_pick"
@@ -131,7 +131,7 @@ def _user_list(tz: ZoneInfo) -> None:
         if query or only_riding:
             st.caption("Search and \"Riding now\" look at the users loaded so far: show more to look further.")
     if not shown:
-        st.caption("No user matches.")
+        st.info("No user matches.")
         return
 
     ids = [u["id"] for u in shown]
@@ -155,7 +155,7 @@ def _user_list(tz: ZoneInfo) -> None:
         hide_index=True,
         width="stretch",
     )
-    st.caption(f"{len(shown)} of {len(users)}{'+' if more else ''} users. Click one to see it.")
+    updated_caption(tz, extra=f"{len(shown)} of {len(users)}{'+' if more else ''} users · click one to see it")
     row = picked_row(event.selection if event else None)
     picked = ids[row] if row is not None and 0 <= row < len(ids) else None
     if picked is not None and picked != ss.get(K_LAST_USER_PICK):

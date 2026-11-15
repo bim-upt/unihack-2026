@@ -86,8 +86,9 @@ def _sightings(settings: Settings, area: Bounds, line_of: Callable[[int | None],
     tz = settings.tz
     col_ctl, col_map, col_side = st.columns([1, 4, 3], gap="medium")
     with col_ctl:
-        window = st.radio("Window", list(WINDOWS), key=K_WINDOW, index=1)
-        show = st.radio("On the map", list(SHOW), key=K_SHOW, index=0)
+        st.session_state.setdefault(K_WINDOW, "6 h")
+        window = st.radio("Window", list(WINDOWS), key=K_WINDOW)
+        show = st.radio("On the map", list(SHOW), key=K_SHOW)
         one_line = st.selectbox("Line on the map", [""] + feed.sorted_route_ids(), key=K_LINE,
                                 format_func=lambda r: "All lines (pale)" if not r else feed.routes[r].label)
         only_line = st.checkbox("Show only this line's sightings", key=K_ONLY_LINE, disabled=not one_line,

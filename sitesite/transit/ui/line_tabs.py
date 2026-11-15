@@ -31,7 +31,7 @@ def render_line_tabs(feed: Feed, route: Route, link: RouteLink, *, live: bool, p
 def _bus_table(rows: list[dict], ids: list[str], selected: str | None) -> None:
     st.session_state[state.K_BUS_TABLE_IDS] = ids
     if not rows:
-        st.caption("No buses on this line right now.")
+        st.info("No buses on this line right now.")
         return
     # the selected bus is marked so the list and the details below it read as one
     for row, vid in zip(rows, ids):

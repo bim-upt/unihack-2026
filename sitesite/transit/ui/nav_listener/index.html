@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<body style="margin:0">
+<script>
+// Invisible helper for navigation (see transit/ui/nav.py).
+// 1. The browser's Back / Forward: Streamlit changes the URL but doesn't rerun a single-page app, so this hears
+//    the page's "popstate" and sends the new URL to the app as this component's value (which reruns the app).
+// 2. The app's history steps: a change within a page (line, bus, device, ...) replaces the URL in place (no new
+//    entry, so Back goes to the previous PAGE); another page first brings the old entry up to date, then adds one.
+(function () {
+  var host = window.parent;
+  function send(type, data) {
+    host.postMessage(Object.assign({isStreamlitMessage: true, type: type}, data || {}), "*");
+  }
+  function onPop() {   // "at" tells each Back / Forward apart
+    send("streamlit:setComponentValue", {value: {search: host.location.search, at: Date.now()}, dataType: "json"});
+  }
+  if (host.__transitNavPop) { try { host.removeEventListener("popstate", host.__transitNavPop); } catch (e) {} }
+  host.__transitNavPop = onPop;
+  host.addEventListener("popstate", onPop);
+
+  // history steps sent by the app, done in order once each: ["replace", query] brings the current entry's URL up
+  // to date (a pick within the page), ["push", query] adds an entry (another page)
+  var lastNonce = null;
+  window.addEventListener("message", function (e) {
+    var d = e.data;
+    if (!d || d.type !== "streamlit:render") return;
+    var a = d.args || {};
+    if (!a.ops || a.nonce === lastNonce) return;
+    lastNonce = a.nonce;
+    a.ops.forEach(function (op) {
+      var target = host.location.pathname + (op[1] ? "?" + op[1] : "");
+      if (op[0] === "push") {
+        if (target !== host.location.pathname + host.location.search) host.history.pushState({}, "", target);
+      } else if (target !== host.location.pathname + host.location.search) {
+        host.history.replaceState(host.history.state, "", target);
+      }
+    });
+  });
+
+  send("streamlit:componentReady", {apiVersion: 1});
+  send("streamlit:setFrameHeight", {height: 0});
+})();
+</script>
+</body>
+</html>
