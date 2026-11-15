@@ -20,6 +20,7 @@ from transit.mapview.layers import (
 )
 from transit.providers import ScheduleProvider, live_vehicles, trail_coords
 from transit.ui import data, state
+from transit.ui.bus_sightings import render_bus_sightings
 from transit.ui.devices import render_bus_devices, render_devices_view
 from transit.ui.info_panel import (
     render_bus_history, render_live_bus, render_network, render_route_header, render_schedule_vehicle,
@@ -280,9 +281,9 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                     frame_fetched = (snap.frame, snap.errors.get("frame")) if snap else (None, snap_err)
                     devices_fetched = ((snap.devices, snap.errors), None) if snap else (None, snap_err)
                     # the tab open for the last bus stays open for the next one
-                    tab_names = ["Overview", "Devices", "History"]
+                    tab_names = ["Overview", "Devices", "History", "Sightings"]
                     remembered = st.session_state.get(state.K_BUS_TAB, "Overview")
-                    t_overview, t_devices, t_history = st.tabs(
+                    t_overview, t_devices, t_history, t_sightings = st.tabs(
                         tab_names, key=f"bus_tabs_{bid}", default=remembered if remembered in tab_names else None,
                         on_change=state.remember_bus_tab, args=(f"bus_tabs_{bid}",))
                     with t_overview:
@@ -294,6 +295,8 @@ def _map_view(gtfs_key: str, feed: Feed, link, link_err: str | None, controls) -
                         render_bus_devices(devices_fetched, SETTINGS.tz, SETTINGS.device_online_s)
                     with t_history:
                         render_bus_history(history_fetched, SETTINGS.tz)
+                    with t_sightings:
+                        render_bus_sightings(bid, SETTINGS.tz)
             else:
                 v = next((x for x in vehicles if x.vehicle_id == selected), None)
                 if v:

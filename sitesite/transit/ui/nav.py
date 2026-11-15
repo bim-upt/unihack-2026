@@ -37,7 +37,7 @@ K_MEMORY, K_LAST_VIEW = "nav_page_memory", "nav_last_view"
 # when you return to it (browser Back / Forward or the View dropdown). They live in this browser tab's session,
 # so a page opened fresh (typed URL, refresh, a link) starts with the defaults.
 PAGE_SETTINGS = {
-    "map": [state.K_ROUTE, state.K_SOURCE, state.K_SIM_ON, state.K_SIM_HOUR, state.K_SIM_MIN],
+    "map": [state.K_ROUTE, state.K_SOURCE, state.K_SIM_ON, state.K_SIM_HOUR, state.K_SIM_MIN, "bus_sight_window"],
     "fleet": [],
     "health": ["health_window", "health_all_lines"],
     "devices": ["device_search", "device_role", "device_status"],
